@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+from typing import Any, Optional, Protocol
+
 import numpy as np
+
+
+class _ToolFkRobotLike(Protocol):
+    tool_link: str
+
+    def forward_kinematics(self, theta=None, link_name=None) -> np.ndarray: ...
 
 
 def make_base_transform(y_offset: float) -> np.ndarray:
@@ -45,3 +53,26 @@ def project_to_canvas_point(p_world: np.ndarray) -> np.ndarray:
     p_canvas[0] = 0.0
     p_canvas[1] += 2.0
     return p_canvas
+
+
+def normalize_vector(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
+    """Return unit vector; return zeros when norm is too small."""
+    n = float(np.linalg.norm(v))
+    if n < eps:
+        return np.zeros_like(v)
+    return v / n
+
+
+def tool_transform_world(
+    robot: _ToolFkRobotLike,
+    theta: Optional[np.ndarray] = None,
+    base_transform: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """Compute tool pose in world frame from robot FK and optional base transform."""
+    T_tool = robot.forward_kinematics(theta=theta, link_name=robot.tool_link)
+
+    if base_transform is None:
+        return T_tool
+
+    T_base = np.asarray(base_transform, dtype=float).reshape(4, 4)
+    return T_base @ T_tool
