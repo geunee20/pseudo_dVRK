@@ -9,7 +9,7 @@ from src.robots.phantom import Phantom
 from src.robots.psm import PSM
 
 from src.kinematics.fk import link_transforms
-from src.kinematics.so3 import Rz
+from src.kinematics.so3 import Rx, Rz
 from src.kinematics.pinocchio_ik import PinocchioIK
 
 from src.utils.real_time_viz import DvrkRealtimeViz
@@ -33,6 +33,11 @@ from settings import (
     JAW_OPEN_SPEED,
     JAW_MIN,
     JAW_MAX,
+    PHANTOM_DUAL_Y_DISTANCE,
+    PSM_BASE_X,
+    PSM_BASE_Y_DISTANCE,
+    PSM_BASE_Z,
+    PSM_BASE_X_ROTATION_SPLIT_DEG,
 )
 
 
@@ -52,10 +57,10 @@ def main() -> None:
     phantom_right = Phantom(robot_root=DEFAULT_PHANTOM_ROOT)
 
     T_phantom_left = np.eye(4)
-    T_phantom_left[1, 3] = -0.5
+    T_phantom_left[1, 3] = -PHANTOM_DUAL_Y_DISTANCE / 2.0
 
     T_phantom_right = np.eye(4)
-    T_phantom_right[1, 3] = 0.5
+    T_phantom_right[1, 3] = PHANTOM_DUAL_Y_DISTANCE / 2.0
 
     viz.add_robot(
         "left",
@@ -101,14 +106,15 @@ def main() -> None:
     # --------------------- PSMs ---------------------
     psm_left = PSM(robot_root=DEFAULT_PSM_ROOT)
     psm_right = PSM(robot_root=DEFAULT_PSM_ROOT)
+    psm_x_half_rad = np.deg2rad(PSM_BASE_X_ROTATION_SPLIT_DEG) / 2.0
 
     T_psm_left = np.eye(4)
-    T_psm_left[:3, :3] = Rz(-np.pi / 2)
-    T_psm_left[:3, 3] = np.array([-0.3, -0.25, 0.1])
+    T_psm_left[:3, :3] = Rx(+psm_x_half_rad) @ Rz(-np.pi / 2)
+    T_psm_left[:3, 3] = np.array([PSM_BASE_X, -PSM_BASE_Y_DISTANCE / 2.0, PSM_BASE_Z])
 
     T_psm_right = np.eye(4)
-    T_psm_right[:3, :3] = Rz(-np.pi / 2)
-    T_psm_right[:3, 3] = np.array([-0.3, 0.25, 0.1])
+    T_psm_right[:3, :3] = Rx(-psm_x_half_rad) @ Rz(-np.pi / 2)
+    T_psm_right[:3, 3] = np.array([PSM_BASE_X, PSM_BASE_Y_DISTANCE / 2.0, PSM_BASE_Z])
 
     q_psm_left = np.array([0.0, 0.0, 0.3, 0.1, 0.0, -0.8, 0.0, 1.0])
     q_psm_right = np.array([0.0, 0.0, 0.3, 0.1, 0.0, -0.8, 0.0, 1.0])

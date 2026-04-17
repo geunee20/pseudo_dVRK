@@ -11,9 +11,12 @@ from src.utils.transforms import make_base_transform
 from src.utils.real_time_viz import DvrkRealtimeViz
 from src.utils.script_common import DEFAULT_PHANTOM_ROOT, run_with_dual_devices
 from src.kinematics.fk import link_transforms
+import sys
+from pathlib import Path
 
-LEFT_Y_OFFSET = -0.25
-RIGHT_Y_OFFSET = +0.25
+_project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_project_root))
+from settings import PHANTOM_BOTH_Y_DISTANCE
 
 
 def main() -> None:
@@ -30,8 +33,8 @@ def main() -> None:
     phantom_left = Phantom(robot_root=DEFAULT_PHANTOM_ROOT)
     phantom_right = Phantom(robot_root=DEFAULT_PHANTOM_ROOT)
 
-    T_left = make_base_transform(LEFT_Y_OFFSET)
-    T_right = make_base_transform(RIGHT_Y_OFFSET)
+    T_left = make_base_transform(-PHANTOM_BOTH_Y_DISTANCE / 2.0)
+    T_right = make_base_transform(PHANTOM_BOTH_Y_DISTANCE / 2.0)
 
     viz.add_robot(
         "left",

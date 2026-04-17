@@ -2,10 +2,10 @@
 Query and print hardware limits and calibration values from connected Phantom devices.
 
 Run with:
-    python -m scripts.device_info
+    python -m calibrations.device_info
 
 Output can be used to set MAX_FORCE_NORM, FORCE_KP, FORCE_KD, etc. in experiment
-scripts. Key relationships:
+examples. Key relationships:
 
   MAX_FORCE_NORM      <= nominal_max_continuous_force   (safe sustained limit)
   FORCE_KP  (N/m)    <= nominal_max_stiffness           (hard stiffness ceiling)
