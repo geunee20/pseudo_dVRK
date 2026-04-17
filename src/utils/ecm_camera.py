@@ -210,16 +210,16 @@ def register_keys(
     add_key_event_any: Any = add_key_event
 
     add_key_event_any(
-        "Left", lambda: _apply_joint_delta(ctrl.pitch_idx, -ctrl.pitch_step_rad)
+        "Left", lambda: _apply_joint_delta(ctrl.yaw_idx, -ctrl.yaw_step_rad)
     )  # pyright: ignore[reportCallIssue]
     add_key_event_any(
-        "Right", lambda: _apply_joint_delta(ctrl.pitch_idx, ctrl.pitch_step_rad)
+        "Right", lambda: _apply_joint_delta(ctrl.yaw_idx, ctrl.yaw_step_rad)
     )  # pyright: ignore[reportCallIssue]
     add_key_event_any(
-        "Up", lambda: _apply_joint_delta(ctrl.yaw_idx, ctrl.yaw_step_rad)
+        "Up", lambda: _apply_joint_delta(ctrl.pitch_idx, ctrl.pitch_step_rad)
     )  # pyright: ignore[reportCallIssue]
     add_key_event_any(
-        "Down", lambda: _apply_joint_delta(ctrl.yaw_idx, -ctrl.yaw_step_rad)
+        "Down", lambda: _apply_joint_delta(ctrl.pitch_idx, -ctrl.pitch_step_rad)
     )  # pyright: ignore[reportCallIssue]
 
     # VTK keysyms: Prior=PageUp, Next=PageDown

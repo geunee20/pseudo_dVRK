@@ -55,21 +55,31 @@ Run from repository root.
 ### Device check
 
 ```bash
-python -m scripts.device_info
+python -m calibrations.device_info
 ```
 
 ### Real-time visualization examples
 
 ```bash
-python -m scripts.example_real_time_viz
-python -m scripts.example_real_time_viz_phantom
+python -m examples.real_time_viz
+python -m examples.real_time_viz_phantom
 ```
 
 ### Teleoperation examples
 
 ```bash
-python -m scripts.example_teleoperation_position
-python -m scripts.example_teleoperation_pose
+python -m examples.teleoperation_position
+python -m examples.teleoperation_pose
+python -m examples.teleoperation_position_dual
+python -m examples.teleoperation_pose_dual
+python -m examples.teleoperation_position_dual_ecm
+python -m examples.teleoperation_pose_dual_ecm
+```
+
+### ECM camera simulation
+
+```bash
+python -m examples.ecm_camera_sim
 ```
 
 ### Calibration scripts
@@ -79,7 +89,7 @@ Calibrates the joint2 (wrist 2) coupling coefficient caused by gravity and joint
 
 **Usage:**
 ```bash
-python -m scripts.calibrations.joint2_calibration
+python -m calibrations.joint2_calibration
 ```
 
 **Procedure:**
@@ -100,14 +110,14 @@ python -m scripts.calibrations.joint2_calibration
   R-squared:             0.987234
   ```
 
-**Note:** Each Phantom device requires its own calibration. Update `LEFT_J2_COEFF` or `RIGHT_J2_COEFF` in `src/utils/script_common.py` with the computed value.
+**Note:** Each Phantom device requires its own calibration. Update `LEFT_J2_COEFF` and `RIGHT_J2_COEFF` in `settings.py` with the computed values.
 
 
 #### Phantom Workspace Profiler
 Maps the workspace limits during device operation.
 
 ```bash
-python -m scripts.calibrations.phantom_workspace_profiler
+python -m calibrations.phantom_workspace_profiler
 ```
 
 ## Configuration
@@ -118,6 +128,8 @@ Global settings are centralized in `settings.py` at the project root. Common con
 - **Device configuration**: `LEFT_DEVICE_NAME`, `RIGHT_DEVICE_NAME`
 - **Calibration coefficients**: `LEFT_J2_COEFF`, `RIGHT_J2_COEFF` (update after running joint2_calibration)
 - **Teleoperation parameters**: `TELEOPERATION_GAIN`, `JAW_*` constants
+- **Dual placement parameters**: `PHANTOM_DUAL_Y_DISTANCE`, `PSM_BASE_X`, `PSM_BASE_Y_DISTANCE`, `PSM_BASE_Z`, `PSM_BASE_X_ROTATION_SPLIT_DEG`
+- **ECM camera parameters**: `ECM_CAMERA_DEFAULT_COUNT`, `ECM_CAMERA_DEFAULT_SCOPE_DEG`, `ECM_STEREO_BASELINE_M`, `ECM_CAMERA_HFOV_DEG`, `CAMERA_ROLL_DEG`, `CAMERA_Z_M`
 
 Script-specific settings (window size, colors, camera positions, etc.) remain in their respective files.
 
@@ -130,7 +142,7 @@ from settings import DEFAULT_PHANTOM_ROOT, LEFT_J2_COEFF, TELEOPERATION_GAIN
 
 - If `pyvista` import fails, ensure your active environment is the one where `requirements.txt` was installed.
 - `pinocchio` package is required for `PinocchioIK`-based scripts.
-- This repository currently uses `scripts/example_*.py` entrypoints.
+- This repository currently uses `python -m examples.*` and `python -m calibrations.*` entrypoints.
 
 ## Acknowledgements / Resources
 

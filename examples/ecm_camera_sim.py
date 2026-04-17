@@ -99,8 +99,8 @@ def main() -> None:
     )
 
     print("Controls:")
-    print("  Left / Right  : ECM pitch")
-    print("  Up / Down     : ECM yaw")
+    print("  Left / Right  : ECM yaw")
+    print("  Up / Down     : ECM pitch")
     print("  PageUp / PageDown: ECM insertion")
     print(f"  Cameras       : {args.cameras}")
     print(f"  Scope tilt    : {args.scope_deg:.0f} deg")
