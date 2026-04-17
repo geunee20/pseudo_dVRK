@@ -6,7 +6,6 @@ from typing import Any, Dict, Optional, Protocol, cast
 
 import numpy as np
 import pyvista as pv
-import trimesh
 
 from src.kinematics.fk import visual_transforms, joint_frames
 
@@ -21,31 +20,48 @@ class _RobotLike(Protocol):
 
 
 # ============================================================
-# Mesh loading / conversion helpers
+# Mesh loading helpers
 # ============================================================
 
 
-def _load_trimesh(mesh_path: Path):
-    mesh = trimesh.load(mesh_path, force="mesh", process=False)
-    if isinstance(mesh, trimesh.Scene):
-        if len(mesh.geometry) == 0:
-            return None
-        mesh = cast(
-            trimesh.Trimesh, trimesh.util.concatenate(tuple(mesh.geometry.values()))
-        )
-    return cast(trimesh.Trimesh, mesh)
-
-
-def _trimesh_to_pyvista(mesh: trimesh.Trimesh) -> pv.PolyData:
-    vertices = np.asarray(mesh.vertices, dtype=float)
-    faces = np.asarray(mesh.faces, dtype=np.int64)
-    if vertices.size == 0 or faces.size == 0:
+def _dataset_to_polydata(dataset: pv.DataObject) -> pv.PolyData:
+    if isinstance(dataset, pv.PolyData):
+        poly = dataset.copy(deep=True)
+    elif isinstance(dataset, pv.DataSet):
+        surface = dataset.extract_surface().triangulate()
+        if not isinstance(surface, pv.PolyData):
+            return pv.PolyData()
+        poly = surface
+    else:
         return pv.PolyData()
 
-    faces_pv = np.hstack(
-        [np.full((faces.shape[0], 1), 3, dtype=np.int64), faces]
-    ).ravel()
-    return pv.PolyData(vertices, faces_pv)
+    if poly.n_points == 0 or poly.n_cells == 0:
+        return pv.PolyData()
+    return cast(pv.PolyData, poly)
+
+
+def _load_polydata(mesh_path: Path) -> Optional[pv.PolyData]:
+    try:
+        mesh = pv.read(str(mesh_path))
+    except Exception as exc:
+        print(f"[warn] failed to load mesh {mesh_path}: {exc}")
+        return None
+
+    if isinstance(mesh, pv.MultiBlock):
+        merged: Optional[pv.PolyData] = None
+        for block in mesh:
+            if block is None:
+                continue
+
+            poly = _dataset_to_polydata(block)
+            if poly.n_points == 0:
+                continue
+
+            merged = poly if merged is None else merged.merge(poly, merge_points=False)
+
+        return merged
+
+    return _dataset_to_polydata(mesh)
 
 
 def _make_axis_actor(plotter: pv.Plotter, T: np.ndarray, scale: float = 0.03):
@@ -74,6 +90,63 @@ def _make_joint_marker(
     sphere = pv.Sphere(radius=radius, center=center)
     color = "red" if active else "white"
     return plotter.add_mesh(sphere, color=color, smooth_shading=True, name=None)
+
+
+def add_world_floor_and_object(
+    plotter: pv.Plotter,
+    object_type: str = "cube",
+    center: tuple[float, float, float] = (0.0, 0.0, 0.035),
+    color: str = "tomato",
+    cube_size: tuple[float, float, float] = (0.05, 0.04, 0.06),
+    sphere_radius: float = 0.02,
+    floor_size: tuple[float, float] = (0.35, 0.35),
+    floor_color: str = "lightgray",
+    floor_opacity: float = 0.9,
+) -> None:
+    """Add a simple floor and one target object in world frame."""
+    floor = pv.Plane(
+        center=(0.0, 0.0, 0.0),
+        direction=(0.0, 0.0, 1.0),
+        i_size=float(floor_size[0]),
+        j_size=float(floor_size[1]),
+    )
+
+    obj_type = str(object_type).strip().lower()
+    if obj_type == "sphere":
+        obj = pv.Sphere(radius=float(sphere_radius), center=tuple(center))
+    else:
+        obj = pv.Cube(
+            center=tuple(center),
+            x_length=float(cube_size[0]),
+            y_length=float(cube_size[1]),
+            z_length=float(cube_size[2]),
+        )
+
+    plotter.add_mesh(floor, color=floor_color, opacity=float(floor_opacity))
+    plotter.add_mesh(obj, color=color, smooth_shading=True)
+    plotter.add_axes(line_width=2)  # type: ignore[misc]
+
+
+def hfov_to_vfov_deg(hfov_deg: float, width_px: int, height_px: int) -> float:
+    aspect = float(width_px) / float(height_px)
+    hfov_rad = np.deg2rad(float(hfov_deg))
+    vfov_rad = 2.0 * np.arctan(np.tan(hfov_rad / 2.0) / max(aspect, 1e-12))
+    return float(np.rad2deg(vfov_rad))
+
+
+def apply_camera_pose(
+    plotter: pv.Plotter,
+    pose: Any,
+    vfov_deg: float,
+    near: float,
+    far: float,
+) -> None:
+    cam = plotter.camera
+    cam.position = tuple(np.asarray(pose.position, dtype=float).tolist())
+    cam.focal_point = tuple(np.asarray(pose.focal_point, dtype=float).tolist())
+    cam.up = tuple(np.asarray(pose.viewup, dtype=float).tolist())
+    cam.view_angle = float(vfov_deg)
+    cam.clipping_range = (float(near), float(far))
 
 
 # ============================================================
@@ -113,6 +186,95 @@ class _WaypointSet:
     color: str
     point_size: int
     opacity: float
+
+
+@dataclass
+class PlotterRobotMeshState:
+    robot: _RobotLike
+    poly_by_key: Dict[str, pv.PolyData]
+    base_vertices_by_key: Dict[str, np.ndarray]
+
+
+def add_robot_meshes_to_plotter(
+    plotter: pv.Plotter,
+    name: str,
+    robot: _RobotLike,
+    theta: Optional[np.ndarray] = None,
+    base_transform: Optional[np.ndarray] = None,
+    color: Optional[str] = None,
+    alpha: float = 1.0,
+) -> PlotterRobotMeshState:
+    """Add only robot meshes to a plain PyVista plotter and return update state."""
+    if theta is None:
+        theta = robot.get_theta()
+    else:
+        theta = np.asarray(theta, dtype=float).reshape(-1)
+
+    if base_transform is None:
+        base_transform = np.eye(4)
+    else:
+        base_transform = np.asarray(base_transform, dtype=float).reshape(4, 4)
+
+    poly_by_key: Dict[str, pv.PolyData] = {}
+    base_vertices_by_key: Dict[str, np.ndarray] = {}
+
+    for vp in visual_transforms(robot, theta, base_transform):
+        mesh_path = Path(vp.visual.mesh_path)
+        if not mesh_path.exists():
+            continue
+
+        poly = _load_polydata(mesh_path)
+        if poly is None or poly.n_points == 0:
+            continue
+
+        key = f"{name}:{vp.link_name}:{mesh_path.name}"
+        base_vertices = np.asarray(poly.points).copy()
+        poly.points = DvrkRealtimeViz._transform_points(base_vertices, vp.T_world)
+
+        plotter.add_mesh(
+            poly,
+            color=color,
+            opacity=float(alpha),
+            smooth_shading=True,
+            name=key,
+        )
+        poly_by_key[key] = poly
+        base_vertices_by_key[key] = base_vertices
+
+    return PlotterRobotMeshState(
+        robot=robot,
+        poly_by_key=poly_by_key,
+        base_vertices_by_key=base_vertices_by_key,
+    )
+
+
+def update_robot_meshes_on_plotter(
+    state: PlotterRobotMeshState,
+    theta: np.ndarray,
+    base_transform: Optional[np.ndarray] = None,
+) -> None:
+    """Update mesh vertices previously added by add_robot_meshes_to_plotter."""
+    theta = np.asarray(theta, dtype=float).reshape(-1)
+    if theta.size != state.robot.dof:
+        raise ValueError(f"Expected theta length {state.robot.dof}, got {theta.size}")
+
+    if base_transform is None:
+        base_transform = np.eye(4)
+    else:
+        base_transform = np.asarray(base_transform, dtype=float).reshape(4, 4)
+
+    for vp in visual_transforms(state.robot, theta, base_transform):
+        mesh_path = Path(vp.visual.mesh_path)
+        key = f"{mesh_path.name}"
+
+        # Match by suffix to avoid depending on caller-specific name prefixes.
+        for full_key, poly in state.poly_by_key.items():
+            if not full_key.endswith(f":{vp.link_name}:{key}"):
+                continue
+
+            base_vertices = state.base_vertices_by_key[full_key]
+            poly.points = DvrkRealtimeViz._transform_points(base_vertices, vp.T_world)
+            poly.Modified()
 
 
 # ============================================================
@@ -189,12 +351,8 @@ class DvrkRealtimeViz:
                 print(f"[warn] missing mesh: {mesh_path}")
                 continue
 
-            tri_mesh = _load_trimesh(mesh_path)
-            if tri_mesh is None:
-                continue
-
-            poly = _trimesh_to_pyvista(tri_mesh)
-            if poly.n_points == 0:
+            poly = _load_polydata(mesh_path)
+            if poly is None or poly.n_points == 0:
                 continue
 
             base_vertices = np.asarray(poly.points).copy()
