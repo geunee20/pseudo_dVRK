@@ -3,10 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import numpy as np
 import pinocchio as pin
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import numpy.typing as npt
+
+_REF_LOCAL = getattr(getattr(pin, "ReferenceFrame", pin), "LOCAL", None)
+_REF_LOCAL_WORLD_ALIGNED = getattr(
+    getattr(pin, "ReferenceFrame", pin), "LOCAL_WORLD_ALIGNED", None
+)
 
 
 class PinocchioIK:
@@ -25,8 +27,10 @@ class PinocchioIK:
 
         names = self.model.names
         self.pin_joint_names = list(names)[1:] if names else []  # skip universe
-        self.nq = int(self.model.nq)  # type: ignore
-        self.nv = int(self.model.nv)  # type: ignore
+        if self.model.nq is None or self.model.nv is None:
+            raise ValueError("Pinocchio model has undefined nq/nv.")
+        self.nq = int(self.model.nq)
+        self.nv = int(self.model.nv)
 
         self.A, self.b = self._build_active_to_full_mapping()
         self.q_min, self.q_max = self._build_active_limits()
@@ -94,7 +98,9 @@ class PinocchioIK:
         pin.forwardKinematics(self.model, self.data, q_full)
         pin.updateFramePlacements(self.model, self.data)
 
-        oMf = self.data.oMf[self.ee_frame_id]  # type: ignore
+        if self.data.oMf is None:
+            raise RuntimeError("Pinocchio frame placements are unavailable.")
+        oMf = self.data.oMf[self.ee_frame_id]
 
         T = np.eye(4)
         T[:3, :3] = oMf.rotation
@@ -123,7 +129,9 @@ class PinocchioIK:
             pin.forwardKinematics(self.model, self.data, q_full)
             pin.updateFramePlacements(self.model, self.data)
 
-            oMf = self.data.oMf[self.ee_frame_id]  # type: ignore
+            if self.data.oMf is None:
+                raise RuntimeError("Pinocchio frame placements are unavailable.")
+            oMf = self.data.oMf[self.ee_frame_id]
             p_cur = oMf.translation.copy()
 
             err = np.asarray(p_des, dtype=float).reshape(3) - p_cur
@@ -135,7 +143,7 @@ class PinocchioIK:
                 self.data,
                 q_full,
                 self.ee_frame_id,
-                pin.ReferenceFrame.WORLD,  # type: ignore
+                _REF_LOCAL_WORLD_ALIGNED,
             )
             J_full = J6_full[:3, :]  # 3 x nq
             J_act = J_full @ self.A  # 3 x dof
@@ -185,14 +193,15 @@ class PinocchioIK:
             pin.forwardKinematics(self.model, self.data, q_full)
             pin.updateFramePlacements(self.model, self.data)
 
-            oMf = self.data.oMf[self.ee_frame_id]  # type: ignore
+            if self.data.oMf is None:
+                raise RuntimeError("Pinocchio frame placements are unavailable.")
+            oMf = self.data.oMf[self.ee_frame_id]
 
             # current frame -> desired frame error
             fMd = oMf.actInv(oMd)
-            err_vec = pin.log6(fMd).vector  # type: ignore  # shape (6,)
-            err = err_vec  # type: ignore
+            err = np.asarray(pin.log6(fMd).vector, dtype=float).reshape(6)
 
-            if np.linalg.norm(err[:3]) < tol_rot and np.linalg.norm(err[3:]) < tol_pos:  # type: ignore
+            if np.linalg.norm(err[:3]) < tol_rot and np.linalg.norm(err[3:]) < tol_pos:
                 return q_act, True
 
             J6_full = pin.computeFrameJacobian(
@@ -200,7 +209,7 @@ class PinocchioIK:
                 self.data,
                 q_full,
                 self.ee_frame_id,
-                pin.ReferenceFrame.LOCAL_WORLD_ALIGNED,  # type: ignore
+                _REF_LOCAL,
             )  # 6 x nq
 
             J6_act = J6_full @ self.A  # 6 x dof
