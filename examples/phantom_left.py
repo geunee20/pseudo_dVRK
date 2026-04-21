@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import numpy as np
-import pyvista as pv
 
 from src.robots.phantom import Phantom
-from src.utils.real_time_viz import DvrkRealtimeViz
-from src.utils.haptics import DeviceState, state_to_q
-from src.utils.script_common import DEFAULT_PHANTOM_ROOT, run_with_single_device
-
-from src.kinematics.fk import link_transforms
+from src.utils.device_runtime import (
+    DEFAULT_PHANTOM_ROOT,
+    DeviceState,
+    run_with_single_device,
+    state_to_q,
+)
+from src.utils.visualization import DvrkRealtimeViz
+from src.utils.visualization import (
+    create_point_poly,
+    tool_position_world,
+    update_point_poly,
+)
 
 
 def main() -> None:
@@ -36,11 +42,8 @@ def main() -> None:
         color="lightsteelblue",
     )
 
-    T_links = link_transforms(phantom, q_phantom)
-    T_tool_world = T_phantom @ T_links[phantom.tool_link]
-    p_fk = T_tool_world[:3, 3]
-
-    fk_points = pv.PolyData(np.array([p_fk], dtype=float))
+    p_fk = tool_position_world(phantom, q_phantom, base_transform=T_phantom)
+    fk_points = create_point_poly(p_fk)
 
     viz.plotter.add_points(
         fk_points,
@@ -62,12 +65,8 @@ def main() -> None:
 
             viz.update_robot("left", q_phantom, base_transform=T_phantom)
 
-            T_links = link_transforms(phantom, q_phantom)
-            T_tool_world = T_phantom @ T_links[phantom.tool_link]
-            p_fk = T_tool_world[:3, 3]
-
-            fk_points.points = np.array([p_fk], dtype=float)
-            fk_points.Modified()
+            p_fk = tool_position_world(phantom, q_phantom, base_transform=T_phantom)
+            update_point_poly(fk_points, p_fk)
 
             viz.plotter.update()
 

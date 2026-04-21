@@ -69,7 +69,7 @@ ECM_STEREO_BASELINE_M = 0.008
 ECM_CAMERA_FOCUS_DISTANCE_M = 0.3
 
 # ECM camera simulation defaults
-ECM_CAMERA_DEFAULT_COUNT = 1  # allowed values: 1 (mono), 2 (stereo)
+ECM_CAMERA_DEFAULT_COUNT = 2  # allowed values: 1 (mono), 2 (stereo)
 ECM_CAMERA_DEFAULT_SCOPE_DEG = 0.0  # allowed values: 0.0, 30.0
 ECM_CAMERA_YAW_STEP_DEG = 1.0
 ECM_CAMERA_PITCH_STEP_DEG = 1.0

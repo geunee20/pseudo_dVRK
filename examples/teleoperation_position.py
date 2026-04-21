@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import time
-
 import numpy as np
-import pyvista as pv
 
 from src.robots.phantom import Phantom
 from src.robots.psm import PSM
@@ -12,12 +9,22 @@ from src.kinematics.fk import link_transforms
 from src.kinematics.so3 import Rz
 from src.kinematics.pinocchio_ik import PinocchioIK
 
-from src.utils.real_time_viz import DvrkRealtimeViz
-from src.utils.haptics import DeviceState
-from src.utils.script_common import (
+from src.utils.device_runtime import (
     DEFAULT_PHANTOM_ROOT,
     DEFAULT_PSM_ROOT,
+    DeviceState,
     run_with_single_device,
+)
+from src.utils.visualization import (
+    ClutchEvent,
+    DvrkRealtimeViz,
+    compute_desired_position_world,
+    create_point_poly,
+    set_robot_mesh_color,
+    tool_position_world,
+    update_clutch_state,
+    update_jaw_command,
+    update_point_poly,
 )
 
 import sys
@@ -61,9 +68,12 @@ def main() -> None:
         color="lightsteelblue",
     )
 
-    T_links_phantom = link_transforms(phantom, np.asarray(device_state.joints))
-    p_phantom_home = (T_phantom @ T_links_phantom[phantom.tool_link])[:3, 3]
-    fk_phantom = pv.PolyData(np.array([p_phantom_home], dtype=float))
+    p_phantom_home = tool_position_world(
+        phantom,
+        np.asarray(device_state.joints),
+        base_transform=T_phantom,
+    )
+    fk_phantom = create_point_poly(p_phantom_home)
     viz.plotter.add_points(
         fk_phantom,
         color="blue",
@@ -100,7 +110,7 @@ def main() -> None:
     p_psm_home = (T_psm @ T_links_psm_home[psm.tool_link])[:3, 3]
 
     # desired target point
-    target_psm = pv.PolyData(np.array([p_psm_home], dtype=float))
+    target_psm = create_point_poly(p_psm_home)
     viz.plotter.add_points(
         target_psm,
         color="magenta",
@@ -109,7 +119,7 @@ def main() -> None:
     )
 
     # actual FK point
-    fk_psm = pv.PolyData(np.array([p_psm_home], dtype=float))
+    fk_psm = create_point_poly(p_psm_home)
     viz.plotter.add_points(
         fk_psm,
         color="red",
@@ -131,8 +141,6 @@ def main() -> None:
     p_psm_desired_hold = p_psm_home.copy()
     jaw_cmd = float(q_psm[JAW_IDX])
 
-    t0 = time.perf_counter()
-
     try:
         while True:
 
@@ -140,42 +148,49 @@ def main() -> None:
             viz.update_robot(
                 "left", np.asarray(device_state.joints), base_transform=T_phantom
             )
-            T_links_phantom = link_transforms(phantom, np.asarray(device_state.joints))
-            p_phantom = (T_phantom @ T_links_phantom[phantom.tool_link])[:3, 3]
-            fk_phantom.points = np.array([p_phantom], dtype=float)
-            fk_phantom.Modified()
+            p_phantom = tool_position_world(
+                phantom,
+                np.asarray(device_state.joints),
+                base_transform=T_phantom,
+            )
+            update_point_poly(fk_phantom, p_phantom)
 
             # ------------------------ Update PSM State -----------------------
             clutch_button = device_state.clutch_button
             gripper_button = device_state.gripper_button
 
             # ---------- clutch logic ----------
-            if clutch_button and not prev_clutch_button:
-                clutch_active = True
+            (
+                clutch_active,
+                prev_clutch_button,
+                clutch_event,
+            ) = update_clutch_state(
+                clutch_pressed=clutch_button,
+                prev_clutch_pressed=prev_clutch_button,
+                clutch_active=clutch_active,
+            )
+            if clutch_event == ClutchEvent.PRESSED:
                 p_psm_desired_hold = p_psm_desired.copy()
                 # Change phantom color to red when clutch is active
-                for item in viz._robots["left"].mesh_items.values():
-                    item.actor.prop.color = "red"  # type: ignore
+                set_robot_mesh_color(viz._robots, "left", "red")
 
-            elif (not clutch_button) and prev_clutch_button:
-                clutch_active = False
+            elif clutch_event == ClutchEvent.RELEASED:
                 p_phantom_home = p_phantom.copy()
                 p_psm_home = p_psm_desired.copy()
                 # Change phantom color back to original when clutch is deactivated
-                for item in viz._robots["left"].mesh_items.values():
-                    item.actor.prop.color = "lightsteelblue"  # type: ignore
+                set_robot_mesh_color(viz._robots, "left", "lightsteelblue")
 
-            prev_clutch_button = clutch_button
-
-            if clutch_active:
-                p_psm_desired = p_psm_desired_hold.copy()
-            else:
-                delta_phantom = p_phantom - p_phantom_home
-                p_psm_desired = p_psm_home + TELEOPERATION_GAIN * delta_phantom
+            p_psm_desired = compute_desired_position_world(
+                clutch_active=clutch_active,
+                desired_hold_world=p_psm_desired_hold,
+                phantom_tool_world=p_phantom,
+                phantom_home_world=p_phantom_home,
+                psm_home_world=p_psm_home,
+                teleoperation_gain=TELEOPERATION_GAIN,
+            )
 
             # desired target in world frame
-            target_psm.points = np.array([p_psm_desired], dtype=float)
-            target_psm.Modified()
+            update_point_poly(target_psm, p_psm_desired)
 
             # world -> PSM local
             R_psm = T_psm[:3, :3]
@@ -192,12 +207,14 @@ def main() -> None:
             )
 
             # ---------- jaw logic ----------
-            if gripper_button:
-                jaw_cmd -= JAW_CLOSE_SPEED
-            else:
-                jaw_cmd += JAW_OPEN_SPEED
-
-            jaw_cmd = np.clip(jaw_cmd, JAW_MIN, JAW_MAX)
+            jaw_cmd = update_jaw_command(
+                jaw_cmd=jaw_cmd,
+                gripper_pressed=gripper_button,
+                close_speed=JAW_CLOSE_SPEED,
+                open_speed=JAW_OPEN_SPEED,
+                jaw_min=JAW_MIN,
+                jaw_max=JAW_MAX,
+            )
             q_psm[JAW_IDX] = jaw_cmd
 
             viz.update_robot("psm", q_psm, base_transform=T_psm)
@@ -205,8 +222,7 @@ def main() -> None:
             # actual FK in world frame
             T_links_psm = link_transforms(psm, q_psm)
             p_fk_psm = (T_psm @ T_links_psm[psm.tool_link])[:3, 3]
-            fk_psm.points = np.array([p_fk_psm], dtype=float)
-            fk_psm.Modified()
+            update_point_poly(fk_psm, p_fk_psm)
 
             viz.plotter.update()
 

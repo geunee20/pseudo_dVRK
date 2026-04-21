@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pyvista as pv
 
-from src.utils.ecm_camera import (
+from src.utils.visualization import (
     BASELINE_M,
     FAR,
     HFOV_DEG,
@@ -13,8 +13,8 @@ from src.utils.ecm_camera import (
     register_keys,
     update_cameras,
 )
-from src.utils.real_time_viz import add_world_floor_and_object, hfov_to_vfov_deg
-from src.utils.script_common import DEFAULT_ECM_ROOT
+from src.utils.device_runtime import DEFAULT_ECM_ROOT
+from src.utils.visualization import add_world_floor_and_object, hfov_to_vfov_deg
 
 
 def main() -> None:

@@ -6,10 +6,9 @@ import numpy as np
 
 from src.robots.phantom import Phantom
 from src.robots.psm import PSM
-from src.utils.real_time_viz import DvrkRealtimeViz
-from src.robots.phantom import Phantom
 from src.kinematics.so3 import Rx, Ry, Rz
-from src.utils.script_common import DEFAULT_PHANTOM_ROOT, DEFAULT_PSM_ROOT
+from src.utils.device_runtime import DEFAULT_PHANTOM_ROOT, DEFAULT_PSM_ROOT
+from src.utils.visualization import DvrkRealtimeViz
 
 
 def main() -> None:

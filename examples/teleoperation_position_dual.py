@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 
 import numpy as np
-import pyvista as pv
 
 from src.robots.phantom import Phantom
 from src.robots.psm import PSM
@@ -12,12 +11,22 @@ from src.kinematics.fk import link_transforms
 from src.kinematics.so3 import Rx, Rz
 from src.kinematics.pinocchio_ik import PinocchioIK
 
-from src.utils.real_time_viz import DvrkRealtimeViz
-from src.utils.haptics import DeviceState
-from src.utils.script_common import (
+from src.utils.device_runtime import (
     DEFAULT_PHANTOM_ROOT,
     DEFAULT_PSM_ROOT,
+    DeviceState,
     run_with_dual_devices,
+)
+from src.utils.visualization import (
+    ClutchEvent,
+    DvrkRealtimeViz,
+    compute_desired_position_world,
+    create_point_poly,
+    set_robot_mesh_color,
+    tool_position_world,
+    update_clutch_state,
+    update_jaw_command,
+    update_point_poly,
 )
 
 import sys
@@ -76,16 +85,20 @@ def main() -> None:
         color="salmon",
     )
 
-    T_links_left = link_transforms(phantom_left, np.asarray(left_state.joints))
-    p_phantom_left_home = (T_phantom_left @ T_links_left[phantom_left.tool_link])[:3, 3]
+    p_phantom_left_home = tool_position_world(
+        phantom_left,
+        np.asarray(left_state.joints),
+        base_transform=T_phantom_left,
+    )
 
-    T_links_right = link_transforms(phantom_right, np.asarray(right_state.joints))
-    p_phantom_right_home = (T_phantom_right @ T_links_right[phantom_right.tool_link])[
-        :3, 3
-    ]
+    p_phantom_right_home = tool_position_world(
+        phantom_right,
+        np.asarray(right_state.joints),
+        base_transform=T_phantom_right,
+    )
 
-    fk_phantom_left = pv.PolyData(np.array([p_phantom_left_home], dtype=float))
-    fk_phantom_right = pv.PolyData(np.array([p_phantom_right_home], dtype=float))
+    fk_phantom_left = create_point_poly(p_phantom_left_home)
+    fk_phantom_right = create_point_poly(p_phantom_right_home)
 
     viz.plotter.add_points(
         fk_phantom_left,
@@ -148,8 +161,8 @@ def main() -> None:
     T_links_psm_right = link_transforms(psm_right, q_psm_right)
     p_psm_right_home = (T_psm_right @ T_links_psm_right[psm_right.tool_link])[:3, 3]
 
-    target_psm_left = pv.PolyData(np.array([p_psm_left_home], dtype=float))
-    target_psm_right = pv.PolyData(np.array([p_psm_right_home], dtype=float))
+    target_psm_left = create_point_poly(p_psm_left_home)
+    target_psm_right = create_point_poly(p_psm_right_home)
 
     viz.plotter.add_points(
         target_psm_left,
@@ -164,8 +177,8 @@ def main() -> None:
         render_points_as_spheres=True,
     )
 
-    fk_psm_left = pv.PolyData(np.array([p_psm_left_home], dtype=float))
-    fk_psm_right = pv.PolyData(np.array([p_psm_right_home], dtype=float))
+    fk_psm_left = create_point_poly(p_psm_left_home)
+    fk_psm_right = create_point_poly(p_psm_right_home)
 
     viz.plotter.add_points(
         fk_psm_left,
@@ -211,21 +224,19 @@ def main() -> None:
                 "right", np.asarray(right_state.joints), base_transform=T_phantom_right
             )
 
-            T_links_left = link_transforms(phantom_left, np.asarray(left_state.joints))
-            p_phantom_left = (T_phantom_left @ T_links_left[phantom_left.tool_link])[
-                :3, 3
-            ]
-            fk_phantom_left.points = np.array([p_phantom_left], dtype=float)
-            fk_phantom_left.Modified()
-
-            T_links_right = link_transforms(
-                phantom_right, np.asarray(right_state.joints)
+            p_phantom_left = tool_position_world(
+                phantom_left,
+                np.asarray(left_state.joints),
+                base_transform=T_phantom_left,
             )
-            p_phantom_right = (
-                T_phantom_right @ T_links_right[phantom_right.tool_link]
-            )[:3, 3]
-            fk_phantom_right.points = np.array([p_phantom_right], dtype=float)
-            fk_phantom_right.Modified()
+            update_point_poly(fk_phantom_left, p_phantom_left)
+
+            p_phantom_right = tool_position_world(
+                phantom_right,
+                np.asarray(right_state.joints),
+                base_transform=T_phantom_right,
+            )
+            update_point_poly(fk_phantom_right, p_phantom_right)
 
             # ------------------------ Input State -----------------------
             clutch_left = left_state.clutch_button
@@ -233,52 +244,61 @@ def main() -> None:
             gripper_left = left_state.gripper_button
             gripper_right = right_state.gripper_button
 
-            if clutch_left and not prev_clutch_left:
-                clutch_left_active = True
+            (
+                clutch_left_active,
+                prev_clutch_left,
+                clutch_left_event,
+            ) = update_clutch_state(
+                clutch_pressed=clutch_left,
+                prev_clutch_pressed=prev_clutch_left,
+                clutch_active=clutch_left_active,
+            )
+            if clutch_left_event == ClutchEvent.PRESSED:
                 p_psm_left_desired_hold = p_psm_left_desired.copy()
-                for item in viz._robots["left"].mesh_items.values():
-                    item.actor.prop.color = "red"  # type: ignore
-            elif (not clutch_left) and prev_clutch_left:
-                clutch_left_active = False
+                set_robot_mesh_color(viz._robots, "left", "red")
+            elif clutch_left_event == ClutchEvent.RELEASED:
                 p_phantom_left_home = p_phantom_left.copy()
                 p_psm_left_home = p_psm_left_desired.copy()
-                for item in viz._robots["left"].mesh_items.values():
-                    item.actor.prop.color = "lightsteelblue"  # type: ignore
+                set_robot_mesh_color(viz._robots, "left", "lightsteelblue")
 
-            if clutch_right and not prev_clutch_right:
-                clutch_right_active = True
+            (
+                clutch_right_active,
+                prev_clutch_right,
+                clutch_right_event,
+            ) = update_clutch_state(
+                clutch_pressed=clutch_right,
+                prev_clutch_pressed=prev_clutch_right,
+                clutch_active=clutch_right_active,
+            )
+            if clutch_right_event == ClutchEvent.PRESSED:
                 p_psm_right_desired_hold = p_psm_right_desired.copy()
-                for item in viz._robots["right"].mesh_items.values():
-                    item.actor.prop.color = "red"  # type: ignore
-            elif (not clutch_right) and prev_clutch_right:
-                clutch_right_active = False
+                set_robot_mesh_color(viz._robots, "right", "red")
+            elif clutch_right_event == ClutchEvent.RELEASED:
                 p_phantom_right_home = p_phantom_right.copy()
                 p_psm_right_home = p_psm_right_desired.copy()
-                for item in viz._robots["right"].mesh_items.values():
-                    item.actor.prop.color = "salmon"  # type: ignore
+                set_robot_mesh_color(viz._robots, "right", "salmon")
 
-            prev_clutch_left = clutch_left
-            prev_clutch_right = clutch_right
+            p_psm_left_desired = compute_desired_position_world(
+                clutch_active=clutch_left_active,
+                desired_hold_world=p_psm_left_desired_hold,
+                phantom_tool_world=p_phantom_left,
+                phantom_home_world=p_phantom_left_home,
+                psm_home_world=p_psm_left_home,
+                teleoperation_gain=TELEOPERATION_GAIN,
+            )
 
-            if clutch_left_active:
-                p_psm_left_desired = p_psm_left_desired_hold.copy()
-            else:
-                delta_left = p_phantom_left - p_phantom_left_home
-                p_psm_left_desired = p_psm_left_home + TELEOPERATION_GAIN * delta_left
+            p_psm_right_desired = compute_desired_position_world(
+                clutch_active=clutch_right_active,
+                desired_hold_world=p_psm_right_desired_hold,
+                phantom_tool_world=p_phantom_right,
+                phantom_home_world=p_phantom_right_home,
+                psm_home_world=p_psm_right_home,
+                teleoperation_gain=TELEOPERATION_GAIN,
+            )
 
-            if clutch_right_active:
-                p_psm_right_desired = p_psm_right_desired_hold.copy()
-            else:
-                delta_right = p_phantom_right - p_phantom_right_home
-                p_psm_right_desired = (
-                    p_psm_right_home + TELEOPERATION_GAIN * delta_right
-                )
+            update_point_poly(target_psm_left, p_psm_left_desired)
 
-            target_psm_left.points = np.array([p_psm_left_desired], dtype=float)
-            target_psm_left.Modified()
-
-            target_psm_right.points = np.array([p_psm_right_desired], dtype=float)
-            target_psm_right.Modified()
+            update_point_poly(target_psm_right, p_psm_right_desired)
 
             R_psm_left = T_psm_left[:3, :3]
             t_psm_left = T_psm_left[:3, 3]
@@ -307,18 +327,24 @@ def main() -> None:
                 step_size=0.5,
             )
 
-            if gripper_left:
-                jaw_left_cmd -= JAW_CLOSE_SPEED
-            else:
-                jaw_left_cmd += JAW_OPEN_SPEED
-            jaw_left_cmd = np.clip(jaw_left_cmd, JAW_MIN, JAW_MAX)
+            jaw_left_cmd = update_jaw_command(
+                jaw_cmd=jaw_left_cmd,
+                gripper_pressed=gripper_left,
+                close_speed=JAW_CLOSE_SPEED,
+                open_speed=JAW_OPEN_SPEED,
+                jaw_min=JAW_MIN,
+                jaw_max=JAW_MAX,
+            )
             q_psm_left[JAW_IDX] = jaw_left_cmd
 
-            if gripper_right:
-                jaw_right_cmd -= JAW_CLOSE_SPEED
-            else:
-                jaw_right_cmd += JAW_OPEN_SPEED
-            jaw_right_cmd = np.clip(jaw_right_cmd, JAW_MIN, JAW_MAX)
+            jaw_right_cmd = update_jaw_command(
+                jaw_cmd=jaw_right_cmd,
+                gripper_pressed=gripper_right,
+                close_speed=JAW_CLOSE_SPEED,
+                open_speed=JAW_OPEN_SPEED,
+                jaw_min=JAW_MIN,
+                jaw_max=JAW_MAX,
+            )
             q_psm_right[JAW_IDX] = jaw_right_cmd
 
             viz.update_robot("psm_left", q_psm_left, base_transform=T_psm_left)
@@ -326,13 +352,11 @@ def main() -> None:
 
             T_links_psm_left = link_transforms(psm_left, q_psm_left)
             p_fk_left = (T_psm_left @ T_links_psm_left[psm_left.tool_link])[:3, 3]
-            fk_psm_left.points = np.array([p_fk_left], dtype=float)
-            fk_psm_left.Modified()
+            update_point_poly(fk_psm_left, p_fk_left)
 
             T_links_psm_right = link_transforms(psm_right, q_psm_right)
             p_fk_right = (T_psm_right @ T_links_psm_right[psm_right.tool_link])[:3, 3]
-            fk_psm_right.points = np.array([p_fk_right], dtype=float)
-            fk_psm_right.Modified()
+            update_point_poly(fk_psm_right, p_fk_right)
 
             viz.plotter.update()
             time.sleep(0.001)

@@ -3,14 +3,21 @@ from __future__ import annotations
 import time
 
 import numpy as np
-import pyvista as pv
 
 from src.robots.phantom import Phantom
-from src.utils.haptics import DeviceState, state_to_q
+from src.utils.device_runtime import (
+    DEFAULT_PHANTOM_ROOT,
+    DeviceState,
+    run_with_dual_devices,
+    state_to_q,
+)
 from src.utils.transforms import make_base_transform
-from src.utils.real_time_viz import DvrkRealtimeViz
-from src.utils.script_common import DEFAULT_PHANTOM_ROOT, run_with_dual_devices
-from src.kinematics.fk import link_transforms
+from src.utils.visualization import (
+    DvrkRealtimeViz,
+    create_point_poly,
+    tool_position_world,
+    update_point_poly,
+)
 import sys
 from pathlib import Path
 
@@ -71,18 +78,13 @@ def main() -> None:
             viz.update_robot("left", q_left, base_transform=T_left)
             viz.update_robot("right", q_right, base_transform=T_right)
 
-            T_links_left = link_transforms(phantom_left, q_left)
-            T_tool_world_left = T_left @ T_links_left[phantom_left.tool_link]
-            p_left = T_tool_world_left[:3, 3]
+            p_left = tool_position_world(phantom_left, q_left, base_transform=T_left)
+            p_right = tool_position_world(
+                phantom_right, q_right, base_transform=T_right
+            )
 
-            T_links_right = link_transforms(phantom_right, q_right)
-            T_tool_world_right = T_right @ T_links_right[phantom_right.tool_link]
-            p_right = T_tool_world_right[:3, 3]
-
-            fk_left.points = np.array([p_left], dtype=float)
-            fk_right.points = np.array([p_right], dtype=float)
-            fk_left.Modified()
-            fk_right.Modified()
+            update_point_poly(fk_left, p_left)
+            update_point_poly(fk_right, p_right)
 
             viz.plotter.update()
             time.sleep(0.001)

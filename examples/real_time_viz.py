@@ -7,15 +7,15 @@ import numpy as np
 from src.robots.mtm import MTM
 from src.robots.psm import PSM
 from src.robots.ecm import ECM
-from src.utils.real_time_viz import DvrkRealtimeViz
 from src.robots.phantom import Phantom
 from src.kinematics.so3 import Rx, Ry, Rz
-from src.utils.script_common import (
+from src.utils.device_runtime import (
     DEFAULT_ECM_ROOT,
     DEFAULT_MTM_ROOT,
     DEFAULT_PHANTOM_ROOT,
     DEFAULT_PSM_ROOT,
 )
+from src.utils.visualization import DvrkRealtimeViz
 
 
 def main() -> None:

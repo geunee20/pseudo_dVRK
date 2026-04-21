@@ -7,9 +7,13 @@ import numpy as np
 import pyvista as pv
 
 from src.robots.phantom import Phantom
-from src.utils.real_time_viz import DvrkRealtimeViz
-from src.utils.haptics import DeviceState, state_to_q
-from src.utils.script_common import DEFAULT_PHANTOM_ROOT, run_with_single_device
+from src.utils.device_runtime import (
+    DEFAULT_PHANTOM_ROOT,
+    DeviceState,
+    run_with_single_device,
+    state_to_q,
+)
+from src.utils.visualization import DvrkRealtimeViz
 from src.kinematics.so3 import Rz
 from src.kinematics.fk import link_transforms
 

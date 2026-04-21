@@ -5,7 +5,7 @@ import numpy as np
 from src.robots.psm import PSM
 from src.robots.ecm import ECM
 from src.robots.mtm import MTM
-from src.utils.script_common import (
+from src.utils.device_runtime import (
     DEFAULT_ECM_ROOT,
     DEFAULT_MTM_ROOT,
     DEFAULT_PSM_ROOT,

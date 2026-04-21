@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import time
 
-from src.utils.haptics import DeviceState, setup_devices
+from src.utils.device_runtime import DeviceState, setup_devices
 from src.pyOpenHaptics.hd import (
     start_scheduler,
     stop_scheduler,
