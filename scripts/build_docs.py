@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,10 +16,13 @@ def main() -> int:
     docs_source = root / "docs" / "source"
     docs_build = root / "docs" / "build" / "html"
 
+    # Remove stale generated trees from previous docs scopes.
+    for stale in (docs_source / "api_calibrations", docs_source / "api_examples"):
+        if stale.exists():
+            shutil.rmtree(stale)
+
     apidoc_targets = [
         (docs_source / "api", root / "src"),
-        (docs_source / "api_calibrations", root / "calibrations"),
-        (docs_source / "api_examples", root / "examples"),
     ]
 
     for out_dir, module_dir in apidoc_targets:

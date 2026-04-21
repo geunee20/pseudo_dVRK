@@ -6,8 +6,6 @@ on:
       - main
     paths:
       - "src/**"
-      - "calibrations/**"
-      - "examples/**"
       - "docs/**"
       - "urdfs/**"
       - "settings.py"

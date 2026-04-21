@@ -2,6 +2,8 @@
 
 Also referred to as pseudo-dVRK (pDVRK).
 
+Documentation: https://geunee20.github.io/pseudo_dVRK/
+
 This project is a Windows-based pseudo-dVRK (pDVRK) simulation platform inspired by the da Vinci Research Kit (dVRK), designed to operate without ROS.
 
 The system uses a 3D Touch (Phantom) haptic device as an input interface to control a Patient Side Manipulator (PSM) in real time.
@@ -149,8 +151,6 @@ from settings import DEFAULT_PHANTOM_ROOT, LEFT_J2_COEFF, TELEOPERATION_GAIN
 This repository includes a Sphinx pipeline that builds API docs from:
 
 - `src/`
-- `calibrations/`
-- `examples/`
 - `settings.py`
 - static URDF assets under `urdfs/`
 
@@ -168,7 +168,7 @@ Generated HTML will be available at:
 ### Auto-deploy on push
 
 GitHub Actions deploys docs to GitHub Pages on push to `main` when relevant files change
-(`src`, `calibrations`, `examples`, `docs`, `urdfs`, `settings.py`, or docs workflow/script files).
+(`src`, `docs`, `urdfs`, `settings.py`, or docs workflow/script files).
 
 ### Warning policy
 
