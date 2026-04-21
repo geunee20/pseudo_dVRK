@@ -254,6 +254,11 @@ def main() -> None:
         cam_left_psm_right, color="gold", point_size=12, render_points_as_spheres=True
     )
 
+    cam_right_psm_left_mesh = None
+    cam_right_psm_right_mesh = None
+    cam_right_psm_left = None
+    cam_right_psm_right = None
+
     if is_stereo:
         cam_plotter.subplot(0, 1)
         cam_right_psm_left_mesh = add_robot_meshes_to_plotter(
@@ -496,12 +501,16 @@ def main() -> None:
                 cam_left_psm_right_mesh, q_psm_right, base_transform=T_psm_right
             )
             if is_stereo:
-                update_robot_meshes_on_plotter(
-                    cam_right_psm_left_mesh, q_psm_left, base_transform=T_psm_left
-                )
-                update_robot_meshes_on_plotter(
-                    cam_right_psm_right_mesh, q_psm_right, base_transform=T_psm_right
-                )
+                if cam_right_psm_left_mesh is not None:
+                    update_robot_meshes_on_plotter(
+                        cam_right_psm_left_mesh, q_psm_left, base_transform=T_psm_left
+                    )
+                if cam_right_psm_right_mesh is not None:
+                    update_robot_meshes_on_plotter(
+                        cam_right_psm_right_mesh,
+                        q_psm_right,
+                        base_transform=T_psm_right,
+                    )
 
             T_psm_left_tool_local = psm_ik_left.forward_pose(q_psm_left)
             T_psm_left_tool_world = T_psm_left @ T_psm_left_tool_local
@@ -523,14 +532,16 @@ def main() -> None:
             )
             cam_left_psm_right.Modified()
             if is_stereo:
-                cam_right_psm_left.points = np.array(
-                    [T_psm_left_tool_world[:3, 3]], dtype=float
-                )
-                cam_right_psm_left.Modified()
-                cam_right_psm_right.points = np.array(
-                    [T_psm_right_tool_world[:3, 3]], dtype=float
-                )
-                cam_right_psm_right.Modified()
+                if cam_right_psm_left is not None:
+                    cam_right_psm_left.points = np.array(
+                        [T_psm_left_tool_world[:3, 3]], dtype=float
+                    )
+                    cam_right_psm_left.Modified()
+                if cam_right_psm_right is not None:
+                    cam_right_psm_right.points = np.array(
+                        [T_psm_right_tool_world[:3, 3]], dtype=float
+                    )
+                    cam_right_psm_right.Modified()
 
             # ---- Refresh ECM camera pose ----
             update_cameras(
