@@ -284,7 +284,7 @@ class Robot(ABC):
         show_frames: bool = False,
         alpha: float = 1.0,
     ):
-        from src.utils.visualize import visualize, set_camera_view
+        from src.utils.visualization import set_camera_view, visualize
 
         scene = visualize(self, theta=theta, show_frames=show_frames, alpha=alpha)
         set_camera_view(scene, eye=[1, 1, 1], target=[0, 0, 0])

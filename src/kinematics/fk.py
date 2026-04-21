@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+from src.robots.protocols import RobotTreeLike, VisualRobotLike
 from .se3 import *
 
 if TYPE_CHECKING:
@@ -53,7 +54,10 @@ def joint_transform(joint_type: str, axis: np.ndarray, q: float) -> np.ndarray:
     raise ValueError(f"Unsupported joint type: {joint_type}")
 
 
-def link_transforms(robot, theta: np.ndarray | None = None) -> dict[str, np.ndarray]:
+def link_transforms(
+    robot: RobotTreeLike,
+    theta: np.ndarray | None = None,
+) -> dict[str, np.ndarray]:
     """
     Computes world transforms of all links from a Robot-like tree model.
 
@@ -98,7 +102,9 @@ def link_transforms(robot, theta: np.ndarray | None = None) -> dict[str, np.ndar
 
 
 def forward_kinematics(
-    robot, theta: np.ndarray | None = None, link_name: str | None = None
+    robot: RobotTreeLike,
+    theta: np.ndarray | None = None,
+    link_name: str | None = None,
 ) -> np.ndarray:
     """
     Generic FK for any dVRK robot implementing the Robot interface.
@@ -123,7 +129,9 @@ def forward_kinematics(
 
 
 def visual_transforms(
-    robot, theta=None, base_transform: np.ndarray | None = None
+    robot: VisualRobotLike,
+    theta: np.ndarray | None = None,
+    base_transform: np.ndarray | None = None,
 ) -> list[VisualPose]:
     """
     Compute world-frame transforms of all visual geometries of a robot.
@@ -182,7 +190,9 @@ def visual_transforms(
 
 
 def joint_frames(
-    robot, theta: np.ndarray | None = None, base_transform: np.ndarray | None = None
+    robot: VisualRobotLike,
+    theta: np.ndarray | None = None,
+    base_transform: np.ndarray | None = None,
 ) -> list[JointFrame]:
     """
     Compute world-frame transforms of all active joint frames of a robot.

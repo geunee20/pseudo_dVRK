@@ -4,12 +4,11 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from src.robots.robot import Robot
+from src.robots.urdf_robot import UrdfRobot
 from src.utils.transforms import (
     normalize_vector,
     tool_transform_world as compute_tool_transform_world,
 )
-from src.utils.urdfParser import parse_urdf
 
 
 @dataclass
@@ -19,7 +18,7 @@ class CameraPose:
     viewup: np.ndarray
 
 
-class ECM(Robot):
+class ECM(UrdfRobot):
     def __init__(
         self,
         robot_root: str | Path = "../urdfs/ecm",
@@ -31,14 +30,12 @@ class ECM(Robot):
             robot_root=robot_root,
             base_link="base_link",
             tool_link="end_link",
+            urdf_filename="ecm.urdf",
             world_link=world_link,
         )
         self.base_transform: Optional[np.ndarray] = (
             None if base_transform is None else np.asarray(base_transform, dtype=float)
         )
-        self.urdf_path = self.robot_root / "ecm.urdf"
-        self.build()
-        self.finalize()
 
     @classmethod
     def from_camera_pose(
@@ -65,15 +62,6 @@ class ECM(Robot):
         return cls(
             robot_root=robot_root, world_link=world_link, base_transform=base_transform
         )
-
-    def build(self) -> None:
-        parse_urdf(self, self.urdf_path)
-
-        self.active_joint_names = [
-            name
-            for name, joint in self.joints.items()
-            if joint.mimic is None and joint.joint_type != "fixed"
-        ]
 
     def tool_transform_world(
         self,

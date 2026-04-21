@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Optional, Protocol
+from typing import Optional
 
 import numpy as np
 
-
-class _ToolFkRobotLike(Protocol):
-    tool_link: str
-
-    def forward_kinematics(self, theta=None, link_name=None) -> np.ndarray: ...
+from src.robots.protocols import ToolKinematicsRobotLike
 
 
 def make_base_transform(y_offset: float) -> np.ndarray:
@@ -64,7 +60,7 @@ def normalize_vector(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
 
 
 def tool_transform_world(
-    robot: _ToolFkRobotLike,
+    robot: ToolKinematicsRobotLike,
     theta: Optional[np.ndarray] = None,
     base_transform: Optional[np.ndarray] = None,
 ) -> np.ndarray:

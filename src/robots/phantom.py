@@ -1,10 +1,9 @@
 from pathlib import Path
 
-from src.robots.robot import Robot
-from src.utils.urdfParser import parse_urdf
+from src.robots.urdf_robot import UrdfRobot
 
 
-class Phantom(Robot):
+class Phantom(UrdfRobot):
     def __init__(
         self,
         robot_root: str | Path = "../urdfs/phantom_touch",
@@ -15,18 +14,6 @@ class Phantom(Robot):
             robot_root=robot_root,
             base_link="base",
             tool_link="stylus_point",
+            urdf_filename="phantom_touch.urdf",
             world_link=world_link,
         )
-        self.urdf_path = self.robot_root / "phantom_touch.urdf"
-
-        self.build()
-        self.finalize()
-
-    def build(self) -> None:
-        parse_urdf(self, self.urdf_path)
-
-        self.active_joint_names = [
-            name
-            for name, joint in self.joints.items()
-            if joint.mimic is None and joint.joint_type != "fixed"
-        ]
