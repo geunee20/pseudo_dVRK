@@ -2,21 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol, cast
+from typing import Any, Dict, Optional, cast
 
 import numpy as np
 import pyvista as pv
 
-from src.kinematics.fk import visual_transforms, joint_frames
-
-
-class _RobotLike(Protocol):
-    @property
-    def dof(self) -> int: ...
-
-    def get_theta(self) -> np.ndarray: ...
-
-    def expand_theta(self, theta: np.ndarray) -> dict[str, float]: ...
+from src.kinematics.fk import joint_frames, visual_transforms
+from src.robots.protocols import VisualRobotLike
 
 
 # ============================================================
@@ -69,11 +61,7 @@ def _make_axis_actor(plotter: pv.Plotter, T: np.ndarray, scale: float = 0.03):
     R = T[:3, :3]
 
     actors = {}
-    colors = {
-        "x": "red",
-        "y": "green",
-        "z": "blue",
-    }
+    colors = {"x": "red", "y": "green", "z": "blue"}
 
     for i, key in enumerate(["x", "y", "z"]):
         direction = R[:, i]
@@ -90,63 +78,6 @@ def _make_joint_marker(
     sphere = pv.Sphere(radius=radius, center=center)
     color = "red" if active else "white"
     return plotter.add_mesh(sphere, color=color, smooth_shading=True, name=None)
-
-
-def add_world_floor_and_object(
-    plotter: pv.Plotter,
-    object_type: str = "cube",
-    center: tuple[float, float, float] = (0.0, 0.0, 0.035),
-    color: str = "tomato",
-    cube_size: tuple[float, float, float] = (0.05, 0.04, 0.06),
-    sphere_radius: float = 0.02,
-    floor_size: tuple[float, float] = (0.35, 0.35),
-    floor_color: str = "lightgray",
-    floor_opacity: float = 0.9,
-) -> None:
-    """Add a simple floor and one target object in world frame."""
-    floor = pv.Plane(
-        center=(0.0, 0.0, 0.0),
-        direction=(0.0, 0.0, 1.0),
-        i_size=float(floor_size[0]),
-        j_size=float(floor_size[1]),
-    )
-
-    obj_type = str(object_type).strip().lower()
-    if obj_type == "sphere":
-        obj = pv.Sphere(radius=float(sphere_radius), center=tuple(center))
-    else:
-        obj = pv.Cube(
-            center=tuple(center),
-            x_length=float(cube_size[0]),
-            y_length=float(cube_size[1]),
-            z_length=float(cube_size[2]),
-        )
-
-    plotter.add_mesh(floor, color=floor_color, opacity=float(floor_opacity))
-    plotter.add_mesh(obj, color=color, smooth_shading=True)
-    plotter.add_axes(line_width=2)  # type: ignore[misc]
-
-
-def hfov_to_vfov_deg(hfov_deg: float, width_px: int, height_px: int) -> float:
-    aspect = float(width_px) / float(height_px)
-    hfov_rad = np.deg2rad(float(hfov_deg))
-    vfov_rad = 2.0 * np.arctan(np.tan(hfov_rad / 2.0) / max(aspect, 1e-12))
-    return float(np.rad2deg(vfov_rad))
-
-
-def apply_camera_pose(
-    plotter: pv.Plotter,
-    pose: Any,
-    vfov_deg: float,
-    near: float,
-    far: float,
-) -> None:
-    cam = plotter.camera
-    cam.position = tuple(np.asarray(pose.position, dtype=float).tolist())
-    cam.focal_point = tuple(np.asarray(pose.focal_point, dtype=float).tolist())
-    cam.up = tuple(np.asarray(pose.viewup, dtype=float).tolist())
-    cam.view_angle = float(vfov_deg)
-    cam.clipping_range = (float(near), float(far))
 
 
 # ============================================================
@@ -171,7 +102,7 @@ class _FrameItem:
 
 @dataclass
 class _RobotVisualState:
-    robot: _RobotLike
+    robot: VisualRobotLike
     mesh_items: Dict[str, _VisualItem]
     frame_items: Dict[str, _FrameItem]
 
@@ -190,7 +121,7 @@ class _WaypointSet:
 
 @dataclass
 class PlotterRobotMeshState:
-    robot: _RobotLike
+    robot: VisualRobotLike
     poly_by_key: Dict[str, pv.PolyData]
     base_vertices_by_key: Dict[str, np.ndarray]
 
@@ -198,7 +129,7 @@ class PlotterRobotMeshState:
 def add_robot_meshes_to_plotter(
     plotter: pv.Plotter,
     name: str,
-    robot: _RobotLike,
+    robot: VisualRobotLike,
     theta: Optional[np.ndarray] = None,
     base_transform: Optional[np.ndarray] = None,
     color: Optional[str] = None,
@@ -267,7 +198,6 @@ def update_robot_meshes_on_plotter(
         mesh_path = Path(vp.visual.mesh_path)
         key = f"{mesh_path.name}"
 
-        # Match by suffix to avoid depending on caller-specific name prefixes.
         for full_key, poly in state.poly_by_key.items():
             if not full_key.endswith(f":{vp.link_name}:{key}"):
                 continue
@@ -277,23 +207,7 @@ def update_robot_meshes_on_plotter(
             poly.Modified()
 
 
-# ============================================================
-# Real-time viewer
-# ============================================================
-
-
 class DvrkRealtimeViz:
-    """
-    Generic PyVista real-time viewer for any robot implementing the Robot interface.
-
-    Supported features
-    ------------------
-    - display one or more robots in the same window
-    - update robot pose in real time via update_robot(...)
-    - optional joint frame display for active joints only
-    - optional joint-origin marker highlighting nonzero joint values
-    """
-
     def __init__(
         self,
         title: str = "dVRK Real-Time Visualization",
@@ -312,19 +226,50 @@ class DvrkRealtimeViz:
         self.frame_scale = float(frame_scale)
         self.marker_radius = float(marker_radius)
         self._waypoint_sets: Dict[str, _WaypointSet] = {}
-
         self._robots: Dict[str, _RobotVisualState] = {}
 
         T_world = np.eye(4)
         _make_axis_actor(self.plotter, T_world, scale=0.1)
 
-    # --------------------------------------------------------
-    # Public API
-    # --------------------------------------------------------
+    def _build_frame_items(
+        self,
+        robot: VisualRobotLike,
+        theta: np.ndarray,
+        base_transform: np.ndarray,
+    ) -> Dict[str, _FrameItem]:
+        frame_items: Dict[str, _FrameItem] = {}
+        q_full = robot.expand_theta(theta)
+
+        for jf in joint_frames(robot, theta, base_transform):
+            axis_actors = _make_axis_actor(
+                self.plotter, jf.T_world, scale=self.frame_scale
+            )
+            marker_actor = _make_joint_marker(
+                self.plotter,
+                jf.T_world,
+                active=abs(q_full.get(jf.joint_name, 0.0)) > 1e-6,
+                radius=self.marker_radius,
+            )
+            frame_items[jf.joint_name] = _FrameItem(
+                x_actor=axis_actors["x"],
+                y_actor=axis_actors["y"],
+                z_actor=axis_actors["z"],
+                marker_actor=marker_actor,
+            )
+
+        return frame_items
+
+    def _clear_frame_items(self, frame_items: Dict[str, _FrameItem]) -> None:
+        for frame in frame_items.values():
+            self.plotter.remove_actor(frame.x_actor, render=False)
+            self.plotter.remove_actor(frame.y_actor, render=False)
+            self.plotter.remove_actor(frame.z_actor, render=False)
+            self.plotter.remove_actor(frame.marker_actor, render=False)
+
     def add_robot(
         self,
         name: str,
-        robot: _RobotLike,
+        robot: VisualRobotLike,
         theta: Optional[np.ndarray] = None,
         base_transform: Optional[np.ndarray] = None,
         color: Optional[str] = None,
@@ -373,25 +318,7 @@ class DvrkRealtimeViz:
             )
 
         if self.show_frames:
-            q_full = robot.expand_theta(theta)
-
-            for jf in joint_frames(robot, theta, base_transform):
-                axis_actors = _make_axis_actor(
-                    self.plotter, jf.T_world, scale=self.frame_scale
-                )
-                marker_actor = _make_joint_marker(
-                    self.plotter,
-                    jf.T_world,
-                    active=abs(q_full.get(jf.joint_name, 0.0)) > 1e-6,
-                    radius=self.marker_radius,
-                )
-
-                frame_items[jf.joint_name] = _FrameItem(
-                    x_actor=axis_actors["x"],
-                    y_actor=axis_actors["y"],
-                    z_actor=axis_actors["z"],
-                    marker_actor=marker_actor,
-                )
+            frame_items = self._build_frame_items(robot, theta, base_transform)
 
         self._robots[name] = _RobotVisualState(
             robot=robot,
@@ -431,34 +358,8 @@ class DvrkRealtimeViz:
             item.poly.Modified()
 
         if self.show_frames:
-            frame_items: Dict[str, _FrameItem] = {}
-            for joint_name, frame in state.frame_items.items():
-                self.plotter.remove_actor(frame.x_actor, render=False)
-                self.plotter.remove_actor(frame.y_actor, render=False)
-                self.plotter.remove_actor(frame.z_actor, render=False)
-                self.plotter.remove_actor(frame.marker_actor, render=False)
-            state.frame_items.clear()
-            q_full = robot.expand_theta(theta)
-
-            for jf in joint_frames(robot, theta, base_transform):
-                axis_actors = _make_axis_actor(
-                    self.plotter, jf.T_world, scale=self.frame_scale
-                )
-                marker_actor = _make_joint_marker(
-                    self.plotter,
-                    jf.T_world,
-                    active=abs(q_full.get(jf.joint_name, 0.0)) > 1e-6,
-                    radius=self.marker_radius,
-                )
-
-                frame_items[jf.joint_name] = _FrameItem(
-                    x_actor=axis_actors["x"],
-                    y_actor=axis_actors["y"],
-                    z_actor=axis_actors["z"],
-                    marker_actor=marker_actor,
-                )
-
-            state.frame_items = frame_items
+            self._clear_frame_items(state.frame_items)
+            state.frame_items = self._build_frame_items(robot, theta, base_transform)
 
         self.plotter.render()
 
@@ -502,37 +403,6 @@ class DvrkRealtimeViz:
         border_width: int = 3,
         border_offset: float = 1e-3,
     ):
-        """
-        Create a rectangular canvas plane with optional border.
-
-        Parameters
-        ----------
-        center : np.ndarray | None
-            Canvas center in world coordinates.
-        width : float
-            Canvas width along local in-plane y direction.
-        height : float
-            Canvas height along local in-plane z direction.
-        color : str
-            Plane color.
-        opacity : float
-            Plane opacity.
-        show_border : bool
-            Whether to draw a rectangular border.
-        border_color : str
-            Border color.
-        border_width : float
-            Border line width.
-        border_offset : float
-            Small offset along plane normal to avoid z-fighting.
-
-        Returns
-        -------
-        canvas : pv.PolyData
-            Plane mesh.
-        border : pv.PolyData | None
-            Border polydata if show_border=True, else None.
-        """
         if center is None:
             center = np.array([0.0, 2.0, 0.175 - 0.03], dtype=float)
         else:
@@ -541,18 +411,14 @@ class DvrkRealtimeViz:
                 raise ValueError("center must be shape (3,)")
 
         x, y, z = center
-
-        # yz plane corners
         p0 = np.array([x, y - width / 2.0, z - height / 2.0], dtype=float)
         p1 = np.array([x, y + width / 2.0, z - height / 2.0], dtype=float)
         p2 = np.array([x, y + width / 2.0, z + height / 2.0], dtype=float)
         p3 = np.array([x, y - width / 2.0, z + height / 2.0], dtype=float)
 
-        # plane as quad
         canvas = pv.PolyData()
         canvas.points = np.vstack([p0, p1, p2, p3])
         canvas.faces = np.array([4, 0, 1, 2, 3])
-
         self.plotter.add_mesh(canvas, color=color, opacity=opacity)
 
         border = None
@@ -562,20 +428,8 @@ class DvrkRealtimeViz:
 
             border = pv.PolyData()
             border.points = border_points
-            border.lines = np.hstack(
-                [
-                    [2, 0, 1],
-                    [2, 1, 2],
-                    [2, 2, 3],
-                    [2, 3, 0],
-                ]
-            )
-
-            self.plotter.add_mesh(
-                border,
-                color=border_color,
-                line_width=border_width,
-            )
+            border.lines = np.hstack([[2, 0, 1], [2, 1, 2], [2, 2, 3], [2, 3, 0]])
+            self.plotter.add_mesh(border, color=border_color, line_width=border_width)
 
         return canvas, border
 
@@ -591,10 +445,8 @@ class DvrkRealtimeViz:
         label_z_offset: float = 0.0,
     ):
         waypoints_xyz = np.asarray(waypoints_xyz, dtype=float)
-
         if waypoints_xyz.ndim != 2 or waypoints_xyz.shape[1] != 3:
             raise ValueError("waypoints_xyz must be shape (N, 3)")
-
         if name in self._waypoint_sets:
             raise ValueError(f"Waypoint set already exists: {name}")
 
@@ -611,7 +463,6 @@ class DvrkRealtimeViz:
         for i, p in enumerate(waypoints_xyz):
             p_lab = np.asarray(p, dtype=float).copy()
             p_lab[2] += label_z_offset
-
             actor = self.plotter.add_point_labels(
                 np.array([p_lab], dtype=float),
                 [str(i + 1)],
@@ -635,7 +486,6 @@ class DvrkRealtimeViz:
             point_size=point_size,
             opacity=float(alpha),
         )
-
         return self._waypoint_sets[name]
 
     def hide_canvas_waypoint(self, name: str, index: int) -> None:
@@ -643,17 +493,13 @@ class DvrkRealtimeViz:
             raise KeyError(f"Unknown waypoint set: {name}")
 
         wp = self._waypoint_sets[name]
-
         if not (0 <= index < len(wp.points)):
             raise IndexError(f"Waypoint index out of range: {index}")
-
         if not wp.active_mask[index]:
             return
 
         wp.active_mask[index] = False
-
-        new_points = wp.points[wp.active_mask]
-        wp.points_poly.points = new_points
+        wp.points_poly.points = wp.points[wp.active_mask]
         wp.points_poly.Modified()
 
         try:
@@ -710,12 +556,75 @@ class DvrkRealtimeViz:
         self.plotter.camera_position = [position, focal_point, viewup]
         self.plotter.render()
 
-    # --------------------------------------------------------
-    # Internal helpers
-    # --------------------------------------------------------
     @staticmethod
     def _transform_points(points: np.ndarray, T: np.ndarray) -> np.ndarray:
         ones = np.ones((points.shape[0], 1), dtype=float)
         points_h = np.hstack([points, ones])
         transformed = (T @ points_h.T).T
         return transformed[:, :3]
+
+
+def visualize(
+    robot,
+    theta: Optional[np.ndarray] = None,
+    show_frames: bool = False,
+    alpha: float = 1.0,
+) -> DvrkRealtimeViz:
+    if theta is None:
+        theta = robot.get_theta()
+    viz = DvrkRealtimeViz(show_frames=show_frames, alpha=float(alpha))
+    viz.add_robot("robot", robot, theta=np.asarray(theta, dtype=float).reshape(-1))
+    return viz
+
+
+def set_camera_view(scene, eye, target):
+    eye = np.asarray(eye, dtype=float)
+    target = np.asarray(target, dtype=float)
+
+    if hasattr(scene, "set_camera"):
+        scene.set_camera(
+            position=tuple(eye.tolist()),
+            focal_point=tuple(target.tolist()),
+            viewup=(0.0, 0.0, 1.0),
+        )
+        return
+
+    if isinstance(scene, pv.Plotter):
+        scene.camera_position = [
+            tuple(eye.tolist()),
+            tuple(target.tolist()),
+            (0.0, 0.0, 1.0),
+        ]
+        scene.render()
+        return
+
+    if hasattr(scene, "camera_position"):
+        scene.camera_position = [
+            tuple(eye.tolist()),
+            tuple(target.tolist()),
+            (0.0, 0.0, 1.0),
+        ]
+        if hasattr(scene, "render"):
+            scene.render()
+
+
+def demo_two_robots(ecm, psm, theta_ecm=None, theta_psm=None) -> None:
+    viz = DvrkRealtimeViz(show_frames=True, alpha=0.6)
+
+    if theta_ecm is None:
+        theta_ecm = np.zeros(ecm.dof)
+    if theta_psm is None:
+        theta_psm = np.zeros(psm.dof)
+
+    T_ecm = np.eye(4)
+    T_psm = np.eye(4)
+    T_psm[:3, 3] = np.array([0.25, 0.0, 0.0])
+
+    viz.add_robot(
+        "ecm", ecm, theta=theta_ecm, base_transform=T_ecm, color="lightsteelblue"
+    )
+    viz.add_robot("psm", psm, theta=theta_psm, base_transform=T_psm, color="orange")
+    viz.set_camera(
+        position=(1.0, 1.0, 1.0), focal_point=(0.0, 0.0, 0.0), viewup=(0.0, 0.0, 1.0)
+    )
+    viz.show()

@@ -19,7 +19,7 @@ from settings import (
     ECM_CAMERA_YAW_STEP_DEG,
     ECM_STEREO_BASELINE_M,
 )
-from src.utils.real_time_viz import apply_camera_pose
+from src.utils.visualization.helpers import apply_camera_pose
 
 if TYPE_CHECKING:
     from src.robots.ecm import ECM
@@ -104,7 +104,6 @@ def build_ecm_control_from_camera_pose(
     initial_q: np.ndarray | None = None,
 ) -> tuple["ECM", EcmControl]:
     """Build ECM + control state so the tool pose matches the desired camera pose."""
-    # Local import avoids a runtime import cycle and keeps this utility lightweight.
     from src.robots.ecm import ECM
 
     ecm_tmp = ECM(robot_root=robot_root)
@@ -222,7 +221,6 @@ def register_keys(
         "Down", lambda: _apply_joint_delta(ctrl.pitch_idx, -ctrl.pitch_step_rad)
     )  # pyright: ignore[reportCallIssue]
 
-    # VTK keysyms: Prior=PageUp, Next=PageDown
     add_key_event_any(
         "Prior", lambda: _apply_joint_delta(ctrl.insertion_idx, ctrl.insertion_step_m)
     )  # pyright: ignore[reportCallIssue]

@@ -1,11 +1,14 @@
-import re
+from __future__ import annotations
+
 import math
+import re
 import xml.etree.ElementTree as ET
-import numpy as np
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 
-from src.robots.robot import JointInfo, JointLimit, Mimic, LinkVisual
+from src.robots.robot import JointInfo, JointLimit, LinkVisual, Mimic
 
 
 def _clean_name(text: str | None) -> str:
@@ -62,7 +65,7 @@ def _parse_scalar(text: str | None, default: float = 0.0) -> float:
     return float(s)
 
 
-def _parse_vec3(text: str | None, default=None) -> np.ndarray:
+def _parse_vec3(text: str | None, default: Any = None) -> np.ndarray:
     if default is None:
         default = np.zeros(3)
 
@@ -89,9 +92,7 @@ def _parse_vec3(text: str | None, default=None) -> np.ndarray:
 
 
 def _prefer_stl_if_available(mesh_path: Path) -> Path:
-    """
-    If the given mesh is .dae and a same-stem .STL exists, use the STL instead.
-    """
+    """If the given mesh is .dae and a same-stem .STL exists, use the STL instead."""
     if mesh_path.suffix.lower() == ".dae":
         stl_path = mesh_path.with_suffix(".STL")
         if stl_path.exists():
@@ -104,7 +105,7 @@ def _prefer_stl_if_available(mesh_path: Path) -> Path:
     return mesh_path
 
 
-def parse_urdf(robot, urdf_path):
+def parse_urdf(robot: Any, urdf_path: str | Path) -> None:
     tree = ET.parse(urdf_path)
     root = tree.getroot()
     for elem in root:
@@ -200,5 +201,6 @@ def parse_urdf(robot, urdf_path):
                     axis=axis,
                     limit=limit,
                     mimic=mimic,
-                )
+                ),
+                active=False,
             )
