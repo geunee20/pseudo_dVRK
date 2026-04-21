@@ -32,7 +32,7 @@ from settings import (
     JAW_OPEN_SPEED,
     JAW_MIN,
     JAW_MAX,
-    - PHANTOM_BOTH_Y_DISTANCE / 2,
+    PHANTOM_BOTH_Y_DISTANCE,
     PSM_BASE_X,
     PSM_BASE_Y_DISTANCE,
     PSM_BASE_Z,
@@ -52,7 +52,7 @@ def main() -> None:
     # --------------------- Phantom ---------------------
     phantom = Phantom(robot_root=DEFAULT_PHANTOM_ROOT)
     T_phantom = np.eye(4)
-    T_phantom[1, 3] = - PHANTOM_BOTH_Y_DISTANCE / 2
+    T_phantom[1, 3] = -PHANTOM_BOTH_Y_DISTANCE / 2
     viz.add_robot(
         "left",
         phantom,
