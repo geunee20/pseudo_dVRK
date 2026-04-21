@@ -70,3 +70,7 @@ Thumbs.db
 # Optional large model/data artifacts (uncomment if needed)
 # data/
 # outputs/
+
+# Sphinx docs build artifacts
+docs/build/
+docs/source/api/
