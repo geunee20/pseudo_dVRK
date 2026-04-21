@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from src.robots.protocols import ToolKinematicsRobotLike
+if TYPE_CHECKING:
+    from src.robots.protocols import ToolKinematicsRobotLike
 
 
 def make_base_transform(y_offset: float) -> np.ndarray:
@@ -141,7 +142,7 @@ def normalize_vector(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
 
 
 def tool_transform_world(
-    robot: ToolKinematicsRobotLike,
+    robot: "ToolKinematicsRobotLike",
     theta: Optional[np.ndarray] = None,
     base_transform: Optional[np.ndarray] = None,
 ) -> np.ndarray:

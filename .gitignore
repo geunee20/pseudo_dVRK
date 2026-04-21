@@ -74,3 +74,5 @@ Thumbs.db
 # Sphinx docs build artifacts
 docs/build/
 docs/source/api/
+docs/source/api_calibrations/
+docs/source/api_examples/

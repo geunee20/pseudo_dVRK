@@ -14,22 +14,27 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     docs_source = root / "docs" / "source"
     docs_build = root / "docs" / "build" / "html"
-    api_out = docs_source / "api"
 
-    api_out.mkdir(parents=True, exist_ok=True)
+    apidoc_targets = [
+        (docs_source / "api", root / "src"),
+        (docs_source / "api_calibrations", root / "calibrations"),
+        (docs_source / "api_examples", root / "examples"),
+    ]
 
-    run(
-        [
-            sys.executable,
-            "-m",
-            "sphinx.ext.apidoc",
-            "-f",
-            "-o",
-            str(api_out),
-            str(root / "src"),
-        ],
-        cwd=root,
-    )
+    for out_dir, module_dir in apidoc_targets:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        run(
+            [
+                sys.executable,
+                "-m",
+                "sphinx.ext.apidoc",
+                "-f",
+                "-o",
+                str(out_dir),
+                str(module_dir),
+            ],
+            cwd=root,
+        )
 
     run(
         [

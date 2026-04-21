@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "src/**"
+      - "calibrations/**"
+      - "examples/**"
+      - "docs/**"
+      - "urdfs/**"
+      - "settings.py"
+      - "scripts/build_docs.py"
+      - ".github/workflows/docs-pages.yml"
   workflow_dispatch:
 
 permissions:

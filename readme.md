@@ -144,6 +144,37 @@ from settings import DEFAULT_PHANTOM_ROOT, LEFT_J2_COEFF, TELEOPERATION_GAIN
 - `pinocchio` package is required for `PinocchioIK`-based scripts.
 - This repository currently uses `python -m examples.*` and `python -m calibrations.*` entrypoints.
 
+## Documentation (Sphinx + GitHub Pages)
+
+This repository includes a Sphinx pipeline that builds API docs from:
+
+- `src/`
+- `calibrations/`
+- `examples/`
+- `settings.py`
+- static URDF assets under `urdfs/`
+
+### Build locally
+
+```bash
+pip install -r docs/requirements.txt
+python scripts/build_docs.py
+```
+
+Generated HTML will be available at:
+
+- `docs/build/html/index.html`
+
+### Auto-deploy on push
+
+GitHub Actions deploys docs to GitHub Pages on push to `main` when relevant files change
+(`src`, `calibrations`, `examples`, `docs`, `urdfs`, `settings.py`, or docs workflow/script files).
+
+### Warning policy
+
+Doc builds are currently configured to succeed even if Sphinx emits warnings.
+This keeps CI robust while the codebase evolves; warnings can be cleaned up incrementally.
+
 ## Acknowledgements / Resources
 
 This project reuses and adapts URDF and external libraries from the following repositories:
