@@ -33,11 +33,24 @@ def _strip_package_prefix(mesh_filename: str) -> str:
 
 
 def _eval_expr(expr: str) -> float:
-    """
-    Evaluate a very small subset of xacro scalar expressions safely.
-    Supports numbers, +, -, *, /, parentheses, and PI.
-    Example:
-        ${-75/180*PI} -> -1.3089969389957472
+    """Evaluate a small subset of xacro scalar expressions safely.
+
+    Supports numbers, the four arithmetic operators, parentheses, and the
+    constant ``PI``.  All other identifiers are rejected.
+
+    Example::
+
+        _eval_expr("${-75/180*PI}")  # -> -1.3089969389957472
+
+    Args:
+        expr: A xacro scalar string, optionally wrapped in ``${...}``.
+
+    Raises:
+        ValueError: If the expression contains characters outside the
+            allowed set or cannot be evaluated.
+
+    Returns:
+        Evaluated float value.
     """
     s = expr.strip()
 
@@ -106,6 +119,30 @@ def _prefer_stl_if_available(mesh_path: Path) -> Path:
 
 
 def parse_urdf(robot: Any, urdf_path: str | Path) -> None:
+    """Parse a URDF file and populate *robot* with links, joints, and visuals.
+
+    Iterates over the top-level ``<link>`` and ``<joint>`` elements and calls
+    the corresponding ``robot.add_link``, ``robot.add_joint``, and
+    ``robot.add_visual`` methods.  The following sub-elements are handled:
+
+    * ``<visual><origin>`` and ``<visual><geometry><mesh>`` for visual mesh
+      registration.
+    * ``<joint>`` attributes: ``type``, ``<parent>``, ``<child>``,
+      ``<origin>``, ``<axis>``, ``<limit>``, ``<mimic>``.
+
+    Mesh paths are resolved via ``robot.resolve_mesh_path`` and STL files
+    are preferred over DAE where available.
+
+    .. note::
+        This function does **not** set ``active_joint_names``; that
+        responsibility lies with the robot subclass (e.g.
+        :class:`~src.robots.urdf_robot.UrdfRobot`).
+
+    Args:
+        robot: Partially-constructed robot object exposing ``add_link``,
+            ``add_joint``, ``add_visual``, and ``resolve_mesh_path``.
+        urdf_path: Path to the ``.urdf`` file to parse.
+    """
     tree = ET.parse(urdf_path)
     root = tree.getroot()
     for elem in root:
@@ -142,7 +179,7 @@ def parse_urdf(robot: Any, urdf_path: str | Path) -> None:
                     robot.add_visual(
                         LinkVisual(
                             link_name=link_name,
-                            mesh_path=mesh_path,
+                            mesh_path=str(mesh_path),
                             origin_xyz=xyz,
                             origin_rpy=rpy,
                         )

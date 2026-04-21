@@ -12,10 +12,6 @@ import sys
 _project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_project_root))
 from settings import (
-    DEFAULT_ECM_ROOT,
-    DEFAULT_MTM_ROOT,
-    DEFAULT_PHANTOM_ROOT,
-    DEFAULT_PSM_ROOT,
     LEFT_DEVICE_NAME,
     LEFT_J2_COEFF,
     RIGHT_DEVICE_NAME,
@@ -26,6 +22,16 @@ Side = Literal["left", "right"]
 
 
 def _run_with_scheduler(callback: Callable[[], None], *devices) -> None:
+    """Start the haptics scheduler, run *callback*, then cleanly shut down.
+
+    Ensures the scheduler is stopped and all devices are closed (in reverse
+    order) even if *callback* raises an exception.
+
+    Args:
+        callback: Zero-argument callable containing the main teleoperation loop.
+        *devices: :class:`~src.pyOpenHaptics.hd_device.HapticDevice` instances
+            to close on exit.
+    """
     try:
         start_scheduler()
         time.sleep(0.2)
@@ -43,6 +49,19 @@ def run_with_single_device(
     side: Side,
     callback: Callable[[], None],
 ) -> None:
+    """Set up a single haptic device and run the teleoperation loop.
+
+    Reads device name and joint-2 coefficient from ``settings.py`` based on
+    *side*, constructs the :class:`~src.pyOpenHaptics.hd_device.HapticDevice`,
+    starts the scheduler, calls *callback*, then shuts down cleanly.
+
+    Args:
+        device_state: :class:`~src.utils.device_runtime.devices.DeviceState`
+            to be updated by the device callback.
+        side: ``'left'`` or ``'right'`` — selects device name and J2 coefficient
+            from settings.
+        callback: Main teleoperation loop (runs between scheduler start/stop).
+    """
     if side == "left":
         device_name = LEFT_DEVICE_NAME
         joint2_coeff = LEFT_J2_COEFF
@@ -64,6 +83,19 @@ def run_with_dual_devices(
     right_state: DeviceState,
     callback: Callable[[], None],
 ) -> None:
+    """Set up a left/right pair of haptic devices and run the teleoperation loop.
+
+    Reads device names and joint-2 coefficients for both sides from
+    ``settings.py``, constructs both devices, starts the scheduler, calls
+    *callback*, then shuts down cleanly.
+
+    Args:
+        left_state: :class:`~src.utils.device_runtime.devices.DeviceState`
+            for the left device.
+        right_state: :class:`~src.utils.device_runtime.devices.DeviceState`
+            for the right device.
+        callback: Main teleoperation loop.
+    """
     left_device, right_device = setup_devices(
         left_state=left_state,
         right_state=right_state,

@@ -34,6 +34,18 @@ FOCUS_DISTANCE_M = ECM_CAMERA_FOCUS_DISTANCE_M
 
 @dataclass
 class EcmControl:
+    """Mutable joint-space state for interactive ECM camera control.
+
+    Attributes:
+        q: Current joint configuration, shape ``(dof,)``.
+        yaw_idx: Index of the yaw joint in *q*, or ``None`` if absent.
+        pitch_idx: Index of the pitch joint in *q*, or ``None`` if absent.
+        insertion_idx: Index of the insertion joint in *q*, or ``None`` if absent.
+        yaw_step_rad: Angle increment (rad) applied per key press for yaw.
+        pitch_step_rad: Angle increment (rad) applied per key press for pitch.
+        insertion_step_m: Translation increment (m) applied per key press for insertion.
+    """
+
     q: np.ndarray
     yaw_idx: int | None
     pitch_idx: int | None
@@ -44,6 +56,14 @@ class EcmControl:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    """Return an argument parser for the ECM camera simulation script.
+
+    Adds ``--cameras`` (1 or 2) and ``--scope-deg`` (0 or 30) arguments.
+    Defaults come from the project ``settings.py``.
+
+    Returns:
+        Configured :class:`argparse.ArgumentParser`.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "ECM camera simulation with keyboard control. "
@@ -68,6 +88,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def find_joint_indices(ecm: ECM) -> tuple[int | None, int | None, int | None]:
+    """Find indices of yaw, pitch, and insertion joints in the ECM's active joint list.
+
+    Args:
+        ecm: Instantiated :class:`~src.robots.ecm.ECM` model.
+
+    Returns:
+        Tuple ``(yaw_idx, pitch_idx, insertion_idx)`` where each element is the
+        integer index into ``ecm.active_joint_names``, or ``None`` if the joint
+        is not present.
+    """
     index = {name: i for i, name in enumerate(ecm.active_joint_names)}
     return (
         index.get("yaw_joint"),
@@ -77,7 +107,15 @@ def find_joint_indices(ecm: ECM) -> tuple[int | None, int | None, int | None]:
 
 
 def create_camera_plotter(n_cameras: int) -> tuple[pv.Plotter, bool]:
-    """Create camera-view plotter configured for mono or stereo mode."""
+    """Create a PyVista plotter configured for mono or stereo camera display.
+
+    Args:
+        n_cameras: ``1`` for monocular or ``2`` for stereo side-by-side layout.
+
+    Returns:
+        ``(plotter, is_stereo)`` — the configured plotter and a bool that is
+        ``True`` when stereo layout was created.
+    """
     is_stereo = int(n_cameras) == 2
     plotter = pv.Plotter(
         shape=(1, 2) if is_stereo else (1, 1),
@@ -103,7 +141,25 @@ def build_ecm_control_from_camera_pose(
     robot_root: str | Path,
     initial_q: np.ndarray | None = None,
 ) -> tuple["ECM", EcmControl]:
-    """Build ECM + control state so the tool pose matches the desired camera pose."""
+    """Build an ECM model and control state so the camera aligns with a desired pose.
+
+    Solves for the base transform :math:`T_\\text{base}` such that the tool
+    pose at the zero (or *initial_q*) configuration matches *camera_world_tf*:
+
+    .. math::
+
+        T_\\text{base} = T_\\text{camera} \\cdot T_\\text{zero}^{-1}
+
+    Args:
+        camera_world_tf: Desired ``(4, 4)`` camera pose in world frame.
+        robot_root: Path to the URDF package root passed to :class:`~src.robots.ecm.ECM`.
+        initial_q: Optional initial joint configuration, shape ``(dof,)``.
+            Defaults to all zeros.
+
+    Returns:
+        ``(ecm, ctrl)`` — ECM model with base transform set and an
+        :class:`EcmControl` initialised to *initial_q*.
+    """
     from src.robots.ecm import ECM
 
     ecm_tmp = ECM(robot_root=robot_root)
@@ -136,6 +192,29 @@ def update_cameras(
     vfov_deg: float,
     camera_roll_deg: float = 0.0,
 ) -> None:
+    """Recompute camera poses from the current ECM state and apply them to the plotter.
+
+    Supports mono (``n_cameras=1``) and stereo (``n_cameras=2``) layouts.
+    An optional roll correction rotates the up-vector about the optical axis:
+
+    .. math::
+
+        \\mathbf{u}' = \\cos\\phi\\,\\mathbf{u} + \\sin\\phi\\,(\\hat{\\mathbf{n}} \\times \\mathbf{u})
+            + (1-\\cos\\phi)(\\hat{\\mathbf{n}} \\cdot \\mathbf{u})\\hat{\\mathbf{n}}
+
+    where :math:`\\hat{\\mathbf{n}}` is the optical axis and :math:`\\phi` is
+    *camera_roll_deg* in radians.
+
+    Args:
+        plotter: PyVista plotter to update.
+        ecm: ECM kinematic model.
+        ctrl: Current :class:`EcmControl` joint state.
+        optical_tilt_deg: Scope tilt angle in degrees (0 or 30).
+        n_cameras: ``1`` (mono) or ``2`` (stereo).
+        vfov_deg: Vertical field of view in degrees.
+        camera_roll_deg: Roll offset applied to the up-vector in degrees.
+    """
+
     def _apply_roll(pose: Any) -> Any:
         if abs(float(camera_roll_deg)) < 1e-12:
             return pose
@@ -189,6 +268,27 @@ def register_keys(
     vfov_deg: float,
     camera_roll_deg: float = 0.0,
 ) -> None:
+    """Register keyboard callbacks for interactive ECM camera control.
+
+    Key bindings (from ``settings.py`` step sizes):
+
+    * **Left / Right** — yaw joint ± ``ctrl.yaw_step_rad``
+    * **Up / Down** — pitch joint ± ``ctrl.pitch_step_rad``
+    * **PageUp / PageDown** — insertion joint ± ``ctrl.insertion_step_m``
+
+    Each key press clamps joint angles, calls :func:`update_cameras`, and
+    triggers a plotter render.
+
+    Args:
+        plotter: PyVista plotter to bind keys on.
+        ecm: ECM kinematic model (used for clamping and FK).
+        ctrl: Mutable :class:`EcmControl` updated in-place by callbacks.
+        optical_tilt_deg: Scope tilt in degrees forwarded to :func:`update_cameras`.
+        n_cameras: ``1`` or ``2`` forwarded to :func:`update_cameras`.
+        vfov_deg: Vertical FOV in degrees forwarded to :func:`update_cameras`.
+        camera_roll_deg: Roll offset forwarded to :func:`update_cameras`.
+    """
+
     def _apply_joint_delta(idx: int | None, delta: float) -> None:
         if idx is None:
             return

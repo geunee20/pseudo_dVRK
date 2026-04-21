@@ -12,7 +12,48 @@ _REF_LOCAL_WORLD_ALIGNED = getattr(
 
 
 class PinocchioIK:
-    def __init__(self, robot, urdf_path: str | Path, ee_frame_name: str):
+    """Pinocchio-backed IK solver for URDF robots with mimic joints.
+
+    This class wraps a Pinocchio model built from the robot's URDF and exposes
+    position-only and full-pose IK solvers that work entirely in the
+    **active-joint** space (i.e. the subspace spanned by
+    ``robot.active_joint_names``).  Mimic joints are handled via an affine
+    projection:
+
+    .. math::
+
+        q_{\\text{full}} = b + A\\, q_{\\text{act}}
+
+    where :math:`A` and :math:`b` are computed from the ``<mimic>`` tags in
+    the URDF.
+
+    Args:
+        robot: Robot object exposing ``active_joint_names``, ``joints``, and
+            ``get_joint``.
+        urdf_path: Path to the URDF file used to build the Pinocchio model.
+        ee_frame_name: Name of the end-effector frame as it appears in the URDF.
+
+    Raises:
+        ValueError: If *ee_frame_name* is not found in the Pinocchio model, or
+            if the Pinocchio model has undefined ``nq``/``nv``.
+        KeyError: If the active/mimic joint mapping is inconsistent between the
+            custom robot model and the Pinocchio model.
+    """
+
+    def __init__(
+        self,
+        robot,
+        urdf_path: str | Path,
+        ee_frame_name: str,
+    ) -> None:
+        """Build Pinocchio model/data and pre-compute active-joint mappings.
+
+        Args:
+            robot: Robot object exposing ``active_joint_names``, ``joints``, and
+                ``get_joint``.
+            urdf_path: Path to URDF file used by Pinocchio.
+            ee_frame_name: End-effector frame name in the Pinocchio model.
+        """
         self.robot = robot
         self.urdf_path = str(urdf_path)
 
@@ -36,6 +77,13 @@ class PinocchioIK:
         self.q_min, self.q_max = self._build_active_limits()
 
     def _build_active_limits(self) -> tuple[np.ndarray, np.ndarray]:
+        """Extract joint limits for all active joints in order.
+
+        Joints without a ``<limit>`` tag receive :math:`(-\\infty, +\\infty)`.
+
+        Returns:
+            ``(q_min, q_max)`` — each a float64 array of length ``len(active_joint_names)``.
+        """
         q_min = []
         q_max = []
         for joint_name in self.robot.active_joint_names:
@@ -49,6 +97,24 @@ class PinocchioIK:
         return np.array(q_min, dtype=float), np.array(q_max, dtype=float)
 
     def _build_active_to_full_mapping(self) -> tuple[np.ndarray, np.ndarray]:
+        """Build the affine map from active-joint space to the full Pinocchio q vector.
+
+        .. math::
+
+            q_{\\text{full}} = b + A\\, q_{\\text{act}}
+
+        For non-mimic joint *i* (in Pinocchio order) the row is a one-hot
+        indicator for its position in ``active_joint_names``.
+        For a mimic joint mimicking source joint *s*:
+
+        .. math::
+
+            q_{\\text{full},i} = \\text{multiplier} \\cdot q_{\\text{act},s}
+                               + \\text{offset}
+
+        Returns:
+            ``(A, b)`` where *A* has shape ``(nq, dof)`` and *b* has shape ``(nq,)``.
+        """
         active_names = list(self.robot.active_joint_names)
         active_index = {name: i for i, name in enumerate(active_names)}
 
@@ -81,17 +147,44 @@ class PinocchioIK:
         return A, b
 
     def active_to_full(self, q_act: np.ndarray) -> np.ndarray:
-        q_act = np.asarray(q_act, dtype=float).reshape(-1)
+        """Map the active-joint vector to the full Pinocchio configuration vector.
+
+        .. math::
+
+            q_{\\text{full}} = b + A\\, q_{\\text{act}}
+
+        Args:
+            q_act: (dof,) active-joint vector.
+
+        Returns:
+            (nq,) full Pinocchio configuration vector.
+        """
         return self.b + self.A @ q_act
 
     def clamp_active(self, q_act: np.ndarray) -> np.ndarray:
-        q_act = np.asarray(q_act, dtype=float).reshape(-1)
+        """Clamp an active-joint vector to the robot's joint limits.
+
+        Args:
+            q_act: (dof,) active-joint vector.
+
+        Returns:
+            (dof,) clamped active-joint vector within ``[q_min, q_max]``.
+        """
         return np.minimum(np.maximum(q_act, self.q_min), self.q_max)
 
     def forward_pose(self, q_act: np.ndarray) -> np.ndarray:
-        """
-        Return current end-effector pose as a 4x4 transform
-        in the robot local/base frame.
+        """Return the current end-effector pose from Pinocchio FK.
+
+        Runs :func:`pinocchio.forwardKinematics` and
+        :func:`pinocchio.updateFramePlacements` with the full configuration
+        obtained via :meth:`active_to_full`, then reads off the end-effector
+        placement.
+
+        Args:
+            q_act: (dof,) active-joint vector.
+
+        Returns:
+            4×4 homogeneous end-effector pose in the robot local/base frame.
         """
         q_full = self.active_to_full(q_act)
 
@@ -116,10 +209,32 @@ class PinocchioIK:
         damping: float = 1e-3,
         step_size: float = 0.5,
     ) -> tuple[np.ndarray, bool]:
-        """
-        Position-only IK in active-joint space.
-        p_des must be expressed in the robot local/base frame.
-        q_init is active-joint vector (length = robot.dof).
+        """Position-only IK in active-joint space (Damped Least-Squares).
+
+        Iterates the DLS update rule on the 3×dof linear-velocity Jacobian:
+
+        .. math::
+
+            \\delta q_{\\text{act}} = J_{\\text{act}}^\\top
+                \\left(J_{\\text{act}} J_{\\text{act}}^\\top + k^2 I\\right)^{-1}
+                e, \\qquad e = p_{\\text{des}} - p_{\\text{ee}}
+
+        where :math:`J_{\\text{act}} = J_{\\text{full}} A` maps from active
+        joints to the Cartesian position error.
+
+        Args:
+            p_des: (3,) desired end-effector position expressed in the robot
+                local/base frame.
+            q_init: (dof,) initial active-joint vector.
+            max_iters: Maximum number of iterations.
+            tol: Convergence threshold on :math:`\\|e\\|`.
+            damping: DLS damping factor :math:`k` (default ``1e-3``).
+            step_size: Step-size scaling :math:`\\alpha \\in (0, 1]`
+                (default ``0.5``).
+
+        Returns:
+            ``(q_act, converged)`` where *q_act* is the (dof,) solution and
+            *converged* is ``True`` if the tolerance was met.
         """
         q_act = self.clamp_active(q_init)
 
@@ -167,15 +282,42 @@ class PinocchioIK:
         weight_rot: float = 1.0,
         weight_pos: float = 1.0,
     ) -> tuple[np.ndarray, bool]:
-        """
-        Full pose IK in active-joint space.
+        """Full-pose IK in active-joint space using Pinocchio's SE(3) error.
 
-        Parameters
-        ----------
-        T_des : (4,4) ndarray
-            Desired end-effector pose expressed in the robot local/base frame.
-        q_init : (dof,) ndarray
-            Initial active joint vector.
+        The pose error is computed in the **local** (end-effector) frame via
+        Pinocchio's :func:`pin.log6`:
+
+        .. math::
+
+            e = \\log\\!\\left(T_{\\text{cur}}^{-1}\\, T_{\\text{des}}\\right)^\\vee
+            \\in \\mathbb{R}^6
+
+        A weighted DLS step is applied to the 6×dof Jacobian:
+
+        .. math::
+
+            \\delta q_{\\text{act}} = (W J_{\\text{act}})^\\top
+                \\left((W J_{\\text{act}})(W J_{\\text{act}})^\\top
+                 + k^2 I\\right)^{-1} (W e)
+
+        where :math:`W = \\operatorname{diag}(w_\\omega I_3,\\, w_v I_3)`.
+
+        Args:
+            T_des: 4×4 desired end-effector pose in the robot local/base frame.
+            q_init: (dof,) initial active-joint vector.
+            max_iters: Maximum number of iterations.
+            tol_rot: Convergence threshold on the rotational component
+                :math:`\\|e_{[:3]}\\|`.
+            tol_pos: Convergence threshold on the positional component
+                :math:`\\|e_{[3:]}\\|`.
+            damping: DLS damping factor :math:`k`.
+            step_size: Step-size scaling :math:`\\alpha \\in (0, 1]`.
+            weight_rot: Weight :math:`w_\\omega` on the rotational error.
+            weight_pos: Weight :math:`w_v` on the positional error.
+
+        Returns:
+            ``(q_act, converged)`` where *q_act* is the (dof,) solution and
+            *converged* is ``True`` if both tolerances were met.
         """
         q_act = self.clamp_active(q_init)
 

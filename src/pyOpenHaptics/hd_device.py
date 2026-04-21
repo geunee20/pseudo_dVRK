@@ -14,6 +14,22 @@ from .hd_define import HD_BAD_HANDLE, HD_INVALID_HANDLE
 
 
 class HapticDevice(object):
+    """High-level wrapper around a single PHANTOM haptic device.
+
+    Initialises the device via ``hdInitDevice``, enables force output,
+    and schedules a C-compatible servo callback using either the
+    asynchronous or synchronous OpenHaptics scheduler.
+
+    Args:
+        callback: Servo-loop function to call at haptic-rate (typically 1 kHz).
+            May be a plain Python function or a ``@hd_callback``-decorated callable.
+        device_name: Device name as configured in the OpenHaptics driver.
+        scheduler_type: ``"async"`` for asynchronous scheduling (default)
+            or ``"sync"`` for synchronous.
+        bind_callback_to_device: If ``True`` (default), wrap *callback* so it
+            explicitly makes this device current before each tick.
+    """
+
     def __init__(
         self,
         callback,
@@ -59,9 +75,16 @@ class HapticDevice(object):
         self.scheduler(self.callback, scheduler_type)
 
     def close(self):
+        """Close the device handle and release driver resources."""
         close_device(self.id)
 
     def scheduler(self, callback, scheduler_type):
+        """Schedule the haptic callback using the specified OpenHaptics scheduler.
+
+        Args:
+            callback: C-compatible ``CFUNCTYPE`` callback pointer.
+            scheduler_type: ``"async"`` or ``"sync"``.
+        """
         if scheduler_type == "async":
             hdAsyncSheduler(callback)
         else:

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from src.robots.protocols import RobotTreeLike, VisualRobotLike
-from .se3 import *
+from .se3 import exp_screw_axis, origin_transform
 
 if TYPE_CHECKING:
     from src.robots.robot import LinkVisual, JointInfo
@@ -25,16 +25,33 @@ class JointFrame:
 
 
 def joint_transform(joint_type: str, axis: np.ndarray, q: float) -> np.ndarray:
-    """
-    Computes joint-generated transform for a single URDF joint.
+    """Return the joint-generated homogeneous transform for a single URDF joint.
 
-    Inputs:
-        joint_type : 'revolute', 'prismatic', or 'fixed'
-        axis       : (3,) joint axis
-        q          : scalar joint displacement
+    * **Revolute** joint with axis :math:`\\hat{a}`:
+
+      .. math::
+
+          T = e^{[\\hat{a},\\, 0]\\, q}
+
+    * **Prismatic** joint with axis :math:`\\hat{a}`:
+
+      .. math::
+
+          T = e^{[0,\\, \\hat{a}]\\, q}
+
+    * **Fixed** joint: returns :math:`I_4`.
+
+    Args:
+        joint_type: One of ``'revolute'``, ``'prismatic'``, or ``'fixed'``.
+        axis: (3,) joint axis vector (expressed in the joint local frame).
+        q: Scalar joint displacement (radians for revolute, metres for
+            prismatic).
+
+    Raises:
+        ValueError: If *joint_type* is not one of the supported types.
 
     Returns:
-        T : (4x4) homogeneous transform
+        4×4 homogeneous transform :math:`T \\in SE(3)`.
     """
     axis = np.asarray(axis, dtype=float).reshape(
         3,
@@ -58,20 +75,27 @@ def link_transforms(
     robot: RobotTreeLike,
     theta: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """
-    Computes world transforms of all links from a Robot-like tree model.
+    """Compute world-frame transforms for every link via a depth-first tree traversal.
 
-    Inputs:
-        robot : robot object implementing
-                - world_link
-                - get_theta()
-                - expand_theta()
-                - get_child_joints(link_name)
-                - get_joint(joint_name)
-        theta : (dof,) active joint vector. If None, robot.get_theta() is used.
+    Starting from the world link at :math:`T = I_4`, the function propagates
+    transforms through the kinematic tree:
+
+    .. math::
+
+        T_{\\text{child}} = T_{\\text{parent}} \\cdot T_{\\text{joint origin}} \\cdot T_{\\text{joint}}(q)
+
+    where :math:`T_{\\text{joint origin}}` comes from the URDF ``<origin>`` tag and
+    :math:`T_{\\text{joint}}(q)` is the joint-generated transform from
+    :func:`joint_transform`.
+
+    Args:
+        robot: Robot object implementing the :class:`~src.robots.protocols.RobotTreeLike`
+            interface.
+        theta: (dof,) active joint vector.  If ``None``, ``robot.get_theta()``
+            is used.
 
     Returns:
-        T_links : dict mapping link_name -> (4x4) transform in world frame
+        Dictionary mapping ``link_name`` → 4×4 world-frame transform.
     """
     if theta is None:
         theta = robot.get_theta()
@@ -106,16 +130,23 @@ def forward_kinematics(
     theta: np.ndarray | None = None,
     link_name: str | None = None,
 ) -> np.ndarray:
-    """
-    Generic FK for any dVRK robot implementing the Robot interface.
+    """Return the world-frame pose of a single link (generic URDF tree FK).
 
-    Inputs:
-        robot     : Robot-like object
-        theta     : (dof,) active joint vector. If None, robot.get_theta() is used.
-        link_name : desired link name. If None, robot.tool_link is used.
+    Internally calls :func:`link_transforms` and returns the transform for the
+    requested link directly.
+
+    Args:
+        robot: Robot object implementing the
+            :class:`~src.robots.protocols.RobotTreeLike` interface.
+        theta: (dof,) active joint vector.  If ``None``, ``robot.get_theta()`` is used.
+        link_name: Name of the link whose pose is requested.  Defaults to
+            ``robot.tool_link``.
+
+    Raises:
+        KeyError: If *link_name* is not present in the computed transform tree.
 
     Returns:
-        T : (4x4) world transform of the requested link
+        4×4 world-frame homogeneous transform of the requested link.
     """
     if link_name is None:
         link_name = robot.tool_link

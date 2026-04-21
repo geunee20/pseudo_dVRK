@@ -1,3 +1,9 @@
+from settings import (
+    DEFAULT_ECM_ROOT,
+    DEFAULT_MTM_ROOT,
+    DEFAULT_PHANTOM_ROOT,
+    DEFAULT_PSM_ROOT,
+)
 from src.utils.device_runtime.devices import (
     DeviceState,
     make_state_callback,
@@ -6,10 +12,6 @@ from src.utils.device_runtime.devices import (
     state_to_q,
 )
 from src.utils.device_runtime.runners import (
-    DEFAULT_ECM_ROOT,
-    DEFAULT_MTM_ROOT,
-    DEFAULT_PHANTOM_ROOT,
-    DEFAULT_PSM_ROOT,
     Side,
     run_with_dual_devices,
     run_with_single_device,

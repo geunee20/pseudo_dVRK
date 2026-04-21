@@ -12,6 +12,16 @@ from .poe import body_product_of_exponentials
 
 @dataclass
 class KinematicModel:
+    """Pre-computed PoE quantities for Jacobian and IK solvers.
+
+    Attributes:
+        M_ee: 4×4 home configuration of the end-effector at :math:`\\theta = 0`.
+        S_list: List of *n* 6-vector screw axes in the **space** frame.
+        B_list: List of *n* 6-vector screw axes in the **body** (end-effector) frame.
+        q_min: (n,) lower joint limits (may contain ``-inf``).
+        q_max: (n,) upper joint limits (may contain ``+inf``).
+    """
+
     M_ee: np.ndarray
     S_list: List[np.ndarray]
     B_list: List[np.ndarray]
@@ -20,8 +30,17 @@ class KinematicModel:
 
 
 def compute_joint_limit_arrays(robot) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Build active-joint limit arrays ordered according to robot.active_joint_names.
+    """Build (n,) joint-limit arrays ordered by ``robot.active_joint_names``.
+
+    For joints without a ``<limit>`` element in the URDF the bounds are set
+    to :math:`(-\\infty, +\\infty)`.
+
+    Args:
+        robot: Any robot object that exposes ``active_joint_names`` and
+            ``get_joint(name)``.
+
+    Returns:
+        ``(q_min, q_max)`` — each a float64 array of length *dof*.
     """
     q_min = []
     q_max = []
@@ -40,8 +59,17 @@ def compute_joint_limit_arrays(robot) -> tuple[np.ndarray, np.ndarray]:
 
 
 def compute_home_ee_pose(robot) -> np.ndarray:
-    """
-    Home end-effector pose at theta = 0 in the robot/world frame used by FK.
+    """Return the home end-effector pose :math:`M_{\\text{ee}}` at :math:`\\theta = 0`.
+
+    The pose is obtained by running tree FK with all joints set to zero
+    and is expressed in the world/space frame used by the robot's FK.
+
+    Args:
+        robot: Robot object with attributes ``dof`` and ``tool_link`` and
+            implementing :func:`~src.kinematics.fk.forward_kinematics`.
+
+    Returns:
+        4×4 homogeneous transform :math:`M_{\\text{ee}} \\in SE(3)`.
     """
     theta0 = np.zeros(robot.dof, dtype=float)
     M_ee = forward_kinematics(robot, theta=theta0, link_name=robot.tool_link)
@@ -51,19 +79,39 @@ def compute_home_ee_pose(robot) -> np.ndarray:
 def compute_screw_axes(
     robot, M_ee: np.ndarray | None = None
 ) -> tuple[List[np.ndarray], List[np.ndarray]]:
-    """
-    Compute space-frame and body-frame screw axes for the active joints.
+    """Compute space-frame and body-frame screw axes for all active joints.
 
-    Notes
-    -----
-    - URDF joint.axis is expressed in the joint local frame.
-    - We rotate it into the space/world frame using the home joint frame rotation.
-    - For revolute joints:
-        S = [w; -w x q]
-      where q is a point on the axis in the space frame.
-    - For prismatic joints:
-        S = [0; v]
-      where v is the axis direction in the space frame.
+    For each active joint the URDF joint axis (expressed in the **local** joint
+    frame) is rotated into the **space** frame using the home joint-frame
+    rotation :math:`R_{\\text{joint}}`:
+
+    .. math::
+
+        \\hat{a}_{\\text{space}} = R_{\\text{joint}}\\, \\hat{a}_{\\text{local}}
+
+    The space screw axis is then constructed as:
+
+    * **Revolute**: :math:`\\mathcal{S} = [\\hat{a}_{\\text{space}}; -\\hat{a}_{\\text{space}} \\times q]`
+    * **Prismatic**: :math:`\\mathcal{S} = [0; \\hat{a}_{\\text{space}}]`
+
+    The body screw axis is converted via the inverse adjoint of :math:`M_{\\text{ee}}`:
+
+    .. math::
+
+        \\mathcal{B} = [\\text{Ad}_{M_{\\text{ee}}^{-1}}]\\, \\mathcal{S}
+
+    Args:
+        robot: Robot object exposing ``active_joint_names``, ``get_joint``, ``dof``,
+            and ``tool_link``.
+        M_ee: Pre-computed home end-effector pose.  If ``None``, computed via
+            :func:`compute_home_ee_pose`.
+
+    Raises:
+        KeyError: If a joint frame is missing or a mimic-source joint is not found.
+        ValueError: If an active joint has a near-zero axis or an unsupported type.
+
+    Returns:
+        ``(S_list, B_list)`` — each a list of *dof* 6-vector screw axes.
     """
     if M_ee is None:
         M_ee = compute_home_ee_pose(robot)
@@ -111,8 +159,19 @@ def compute_screw_axes(
 
 
 def build_kinematic_model(robot) -> KinematicModel:
-    """
-    Build all PoE-ready quantities needed for Jacobian/IK.
+    """Build all PoE quantities needed for Jacobian and IK computation.
+
+    Convenience wrapper that calls :func:`compute_home_ee_pose`,
+    :func:`compute_screw_axes`, and :func:`compute_joint_limit_arrays` in
+    sequence.
+
+    Args:
+        robot: Any robot object satisfying the interface expected by the
+            three sub-functions.
+
+    Returns:
+        :class:`KinematicModel` populated with ``M_ee``, ``S_list``,
+        ``B_list``, ``q_min``, and ``q_max``.
     """
     M_ee = compute_home_ee_pose(robot)
     S_list, B_list = compute_screw_axes(robot, M_ee=M_ee)
@@ -132,11 +191,26 @@ def validate_kinematic_model(
     model: KinematicModel,
     atol: float = 1e-8,
 ) -> None:
-    """
-    Basic consistency check:
-    - number of screw axes matches DOF
-    - PoE home pose equals tree FK home pose
-    - limit array shapes are correct
+    """Assert self-consistency of a :class:`KinematicModel` against a robot.
+
+    Checks performed:
+
+    1. ``len(S_list) == len(B_list) == robot.dof``
+    2. ``q_min.shape == q_max.shape == (robot.dof,)``
+    3. Tree FK home pose agrees with body-PoE home pose:
+
+       .. math::
+
+           T_{\\text{FK}}(0) \\approx M_{\\text{ee}}\\, e^{[B_1] \\cdot 0} \\cdots
+               e^{[B_n] \\cdot 0} = M_{\\text{ee}}
+
+    Args:
+        robot: Robot object used to build *model*.
+        model: The :class:`KinematicModel` to validate.
+        atol: Absolute tolerance passed to :func:`numpy.allclose`.
+
+    Raises:
+        ValueError: If any of the above checks fail.
     """
     if len(model.S_list) != robot.dof:
         raise ValueError(f"S_list length {len(model.S_list)} != robot.dof {robot.dof}")

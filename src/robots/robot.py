@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -15,12 +15,33 @@ import numpy as np
 
 @dataclass
 class JointLimit:
+    """URDF joint position limits.
+
+    Attributes:
+        lower: Lower joint position limit (radians or metres).
+        upper: Upper joint position limit (radians or metres).
+    """
+
     lower: float
     upper: float
 
 
 @dataclass
 class Mimic:
+    """URDF ``<mimic>`` specification linking one joint to another.
+
+    The mimicking joint value is computed as:
+
+    .. math::
+
+        q_{\\text{mimic}} = \\text{multiplier} \\cdot q_{\\text{source}} + \\text{offset}
+
+    Attributes:
+        joint: Name of the source (master) joint.
+        multiplier: Linear gain applied to the source joint value.
+        offset: Constant offset added after scaling.
+    """
+
     joint: str
     multiplier: float = 1.0
     offset: float = 0.0
@@ -28,8 +49,24 @@ class Mimic:
 
 @dataclass
 class JointInfo:
+    """Parsed representation of a single URDF joint.
+
+    Attributes:
+        name: Joint name from the URDF.
+        joint_type: One of ``'revolute'``, ``'prismatic'``, or ``'fixed'``.
+        parent: Name of the parent link.
+        child: Name of the child link.
+        origin_xyz: (3,) translation of the joint frame relative to the parent
+            link frame (metres).
+        origin_rpy: (3,) roll-pitch-yaw orientation of the joint frame relative
+            to the parent link frame (radians).
+        axis: (3,) joint motion axis expressed in the joint local frame.
+        limit: Optional joint position limits; ``None`` for fixed joints.
+        mimic: Optional mimic relationship; ``None`` for non-mimic joints.
+    """
+
     name: str
-    joint_type: str  # 'revolute', 'prismatic', 'fixed'
+    joint_type: str
     parent: str
     child: str
     origin_xyz: np.ndarray
@@ -41,10 +78,20 @@ class JointInfo:
 
 @dataclass
 class LinkVisual:
+    """Path and local origin of a single visual mesh element for a URDF link.
+
+    Attributes:
+        link_name: Name of the parent link.
+        mesh_path: Absolute path to the mesh file (STL preferred over DAE).
+        origin_xyz: (3,) local translation of the visual in the link frame.
+        origin_rpy: (3,) local roll-pitch-yaw orientation of the visual in the
+            link frame (radians).
+    """
+
     link_name: str
-    mesh_path: Path
-    origin_xyz: np.ndarray = field(default_factory=lambda: np.zeros(3))
-    origin_rpy: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    mesh_path: str
+    origin_xyz: np.ndarray
+    origin_rpy: np.ndarray
 
 
 # =========================
@@ -134,19 +181,42 @@ class Robot(ABC):
     # =========================
 
     def set_theta(self, theta: np.ndarray | List[float]) -> None:
+        """Set the active joint vector, validating its size.
+
+        Args:
+            theta: (dof,) joint configuration.
+
+        Raises:
+            ValueError: If ``len(theta) != dof``.
+        """
         theta = np.asarray(theta, dtype=float).reshape(-1)
         if theta.size != self.dof:
             raise ValueError(f"Expected {self.dof}, got {theta.size}")
         self.theta = theta.copy()
 
     def get_theta(self) -> np.ndarray:
+        """Return a copy of the current active joint vector."""
         return self.theta.copy()
 
     def zero_theta(self) -> np.ndarray:
+        """Reset all active joints to zero and return the resulting vector."""
         self.theta = np.zeros(self.dof)
         return self.get_theta()
 
     def clamp_theta(self, theta: np.ndarray | List[float]) -> np.ndarray:
+        """Return a copy of *theta* with each joint clamped to its URDF limits.
+
+        Joints without a ``<limit>`` tag are left unchanged.
+
+        Args:
+            theta: (dof,) joint configuration to clamp.
+
+        Raises:
+            ValueError: If ``len(theta) != dof``.
+
+        Returns:
+            (dof,) clamped joint configuration.
+        """
         theta = np.asarray(theta, dtype=float).reshape(-1)
         if theta.size != self.dof:
             raise ValueError(f"Expected {self.dof}, got {theta.size}")
@@ -179,8 +249,25 @@ class Robot(ABC):
     def expand_theta(
         self, theta: Optional[np.ndarray | List[float]] = None
     ) -> Dict[str, float]:
-        """
-        Expand active joint vector to full joint dictionary (including mimic).
+        """Expand active-joint vector to a full joint dictionary including mimic joints.
+
+        Mimic joints are resolved iteratively using the formula:
+
+        .. math::
+
+            q_{\\text{mimic}} = \\text{multiplier} \\cdot q_{\\text{source}} + \\text{offset}
+
+        Revolute and prismatic joints not covered by active or mimic rules
+        default to 0.
+
+        Args:
+            theta: (dof,) active-joint vector.  Defaults to ``self.theta``.
+
+        Raises:
+            ValueError: If ``len(theta) != dof``.
+
+        Returns:
+            Dictionary mapping every non-fixed joint name to its float value.
         """
         if theta is None:
             theta = self.theta
@@ -283,8 +370,15 @@ class Robot(ABC):
         theta: np.ndarray | None = None,
         show_frames: bool = False,
         alpha: float = 1.0,
-    ):
-        from src.utils.visualization import set_camera_view, visualize
+    ) -> None:
+        """Render this robot in a simple interactive viewer.
+
+        Args:
+            theta: Optional active-joint configuration, shape ``(dof,)``.
+            show_frames: Whether to draw joint frames.
+            alpha: Robot mesh opacity in ``[0, 1]``.
+        """
+        from src.utils.visualization.viewers import set_camera_view, visualize
 
         scene = visualize(self, theta=theta, show_frames=show_frames, alpha=alpha)
         set_camera_view(scene, eye=[1, 1, 1], target=[0, 0, 0])

@@ -17,6 +17,19 @@ from src.robots.protocols import VisualRobotLike
 
 
 def _dataset_to_polydata(dataset: pv.DataObject) -> pv.PolyData:
+    """Convert a generic PyVista dataset to :class:`pyvista.PolyData`.
+
+    For :class:`pyvista.PolyData` inputs the data is deep-copied.  For other
+    :class:`pyvista.DataSet` types the surface is extracted and triangulated.
+    Empty or degenerate results are returned as an empty PolyData.
+
+    Args:
+        dataset: Any PyVista data object.
+
+    Returns:
+        :class:`pyvista.PolyData` with at least one point and cell, or an
+        empty :class:`pyvista.PolyData` on failure.
+    """
     if isinstance(dataset, pv.PolyData):
         poly = dataset.copy(deep=True)
     elif isinstance(dataset, pv.DataSet):
@@ -33,6 +46,17 @@ def _dataset_to_polydata(dataset: pv.DataObject) -> pv.PolyData:
 
 
 def _load_polydata(mesh_path: Path) -> Optional[pv.PolyData]:
+    """Load a mesh file and return it as a single merged :class:`pyvista.PolyData`.
+
+    Handles multi-block files (e.g. DAE) by merging each non-empty block.
+    Prints a warning and returns ``None`` on read failure.
+
+    Args:
+        mesh_path: Absolute path to the mesh file.
+
+    Returns:
+        Merged :class:`pyvista.PolyData`, or ``None`` if loading failed.
+    """
     try:
         mesh = pv.read(str(mesh_path))
     except Exception as exc:
@@ -57,6 +81,17 @@ def _load_polydata(mesh_path: Path) -> Optional[pv.PolyData]:
 
 
 def _make_axis_actor(plotter: pv.Plotter, T: np.ndarray, scale: float = 0.03):
+    """Add red/green/blue axis arrows representing the columns of a transform to the plotter.
+
+    Args:
+        plotter: PyVista plotter to add arrows to.
+        T: ``(4, 4)`` homogeneous transform; origin is ``T[:3, 3]``,
+            axes are columns of ``T[:3, :3]``.
+        scale: Arrow length in metres.
+
+    Returns:
+        Dict ``{'x': actor, 'y': actor, 'z': actor}`` of added mesh actors.
+    """
     origin = T[:3, 3]
     R = T[:3, :3]
 
@@ -74,6 +109,19 @@ def _make_axis_actor(plotter: pv.Plotter, T: np.ndarray, scale: float = 0.03):
 def _make_joint_marker(
     plotter: pv.Plotter, T: np.ndarray, active: bool, radius: float = 0.004
 ):
+    """Add a sphere marker at the origin of a joint transform.
+
+    The marker is red when *active* (non-zero joint value) and white otherwise.
+
+    Args:
+        plotter: PyVista plotter.
+        T: ``(4, 4)`` transform; sphere is placed at ``T[:3, 3]``.
+        active: ``True`` → red sphere; ``False`` → white sphere.
+        radius: Sphere radius in metres.
+
+    Returns:
+        PyVista mesh actor for the added sphere.
+    """
     center = T[:3, 3]
     sphere = pv.Sphere(radius=radius, center=center)
     color = "red" if active else "white"
@@ -208,6 +256,21 @@ def update_robot_meshes_on_plotter(
 
 
 class DvrkRealtimeViz:
+    """Interactive PyVista-based real-time visualiser for dVRK robots.
+
+    Manages a single :class:`pyvista.Plotter` window and supports adding
+    multiple robots by name, updating their joint configurations in real time,
+    and overlaying joint-frame axes, waypoint sets, and FK markers.
+
+    Example usage::
+
+        viz = DvrkRealtimeViz(show_frames=True)
+        viz.add_robot("psm", psm_robot, theta=theta0)
+        # in a callback:
+        viz.update_robot("psm", theta_new)
+        viz.show()
+    """
+
     def __init__(
         self,
         title: str = "dVRK Real-Time Visualization",
@@ -218,6 +281,17 @@ class DvrkRealtimeViz:
         frame_scale: float = 0.03,
         marker_radius: float = 0.004,
     ) -> None:
+        """Initialise the visualiser and open a PyVista plotter window.
+
+        Args:
+            title: Window title string.
+            window_size: ``(width, height)`` in pixels.
+            background: Background colour passed to :meth:`pyvista.Plotter.set_background`.
+            show_frames: Whether to draw joint-frame axis arrows and markers.
+            alpha: Default mesh opacity ``[0, 1]``.
+            frame_scale: Length of joint-frame axis arrows in metres.
+            marker_radius: Radius of joint-origin sphere markers in metres.
+        """
         self.plotter: Any = pv.Plotter(title=title, window_size=list(window_size))
         self.plotter.set_background(background)
 
@@ -274,6 +348,20 @@ class DvrkRealtimeViz:
         base_transform: Optional[np.ndarray] = None,
         color: Optional[str] = None,
     ) -> None:
+        """Load and add a robot's meshes (and optionally joint frames) to the plotter.
+
+        Args:
+            name: Unique robot identifier used for subsequent :meth:`update_robot` calls.
+            robot: Robot model conforming to :class:`~src.robots.protocols.VisualRobotLike`.
+            theta: Initial joint configuration, shape ``(dof,)``.  Defaults to
+                the robot's current configuration.
+            base_transform: Optional ``(4, 4)`` world-from-base transform.  Defaults to
+                identity.
+            color: Solid colour for all meshes, or ``None`` to use mesh file colours.
+
+        Raises:
+            ValueError: If *name* is already registered in this viewer.
+        """
         if name in self._robots:
             raise ValueError(f"Robot name already exists in viewer: {name}")
 
@@ -332,6 +420,21 @@ class DvrkRealtimeViz:
         theta: np.ndarray,
         base_transform: Optional[np.ndarray] = None,
     ) -> None:
+        """Update mesh positions (and joint frames) for a previously added robot.
+
+        Transforms mesh vertices for the new configuration in-place and calls
+        ``poly.Modified()`` so PyVista picks up the change without re-adding actors.
+
+        Args:
+            name: Robot identifier previously passed to :meth:`add_robot`.
+            theta: New joint configuration, shape ``(dof,)``.
+            base_transform: Optional ``(4, 4)`` world-from-base transform.  Defaults
+                to the identity matrix.
+
+        Raises:
+            KeyError: If *name* is not a registered robot.
+            ValueError: If ``theta.size != robot.dof``.
+        """
         if name not in self._robots:
             raise KeyError(f"Unknown robot in viewer: {name}")
 
@@ -364,6 +467,18 @@ class DvrkRealtimeViz:
         self.plotter.render()
 
     def add_fk_marker(self, size: int = 10, color: str = "blue") -> pv.PolyData:
+        """Add a single movable point marker to the plotter and return its PolyData.
+
+        The returned :class:`pyvista.PolyData` can be updated in-place to move
+        the marker without re-adding it to the scene.
+
+        Args:
+            size: Rendered point size in pixels.
+            color: Marker colour.
+
+        Returns:
+            Single-point :class:`pyvista.PolyData` (initially at the origin).
+        """
         marker = pv.PolyData(np.array([[0.0, 0.0, 0.0]], dtype=float))
         self.plotter.add_points(
             marker,
@@ -373,14 +488,30 @@ class DvrkRealtimeViz:
         )
         return marker
 
-    def make_line(self):
+    def make_line(self) -> pv.PolyData:
+        """Create a two-point degenerate line segment PolyData suitable for in-place updates.
+
+        Both endpoints start at the origin.  Update ``poly.points`` to reposition
+        the line without re-adding it to the scene.
+
+        Returns:
+            :class:`pyvista.PolyData` with two coincident points and one line cell.
+        """
         pts = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=float)
         poly = pv.PolyData(pts)
         poly.lines = np.array([2, 0, 1])
         return poly
 
     def add_polyline_mesh(self, points: np.ndarray) -> pv.PolyData:
-        points = np.asarray(points, dtype=float)
+        """Create a connected polyline PolyData from an ordered array of points.
+
+        Args:
+            points: Point array, shape ``(N, 3)``.
+
+        Returns:
+            :class:`pyvista.PolyData` with ``N`` points and ``N-1`` line cells
+            (or just points if ``N < 2``).
+        """
         poly = pv.PolyData(points)
 
         if len(points) >= 2:
@@ -403,6 +534,27 @@ class DvrkRealtimeViz:
         border_width: int = 3,
         border_offset: float = 1e-3,
     ):
+        """Add a flat rectangular canvas mesh to the plotter (for 2-D projections).
+
+        The canvas lies in the YZ plane (X = ``center[0]``).  An optional border
+        polyline is drawn slightly in front (offset along X).
+
+        Args:
+            center: Centre of the canvas ``(x, y, z)`` in metres.
+                Defaults to a position suitable for the standard dVRK setup.
+            width: Canvas width (Y direction) in metres.
+            height: Canvas height (Z direction) in metres.
+            color: Fill colour of the canvas mesh.
+            opacity: Opacity ``[0, 1]`` of the canvas.
+            show_border: Whether to draw a border polyline.
+            border_color: Colour of the border polyline.
+            border_width: Line width of the border in pixels.
+            border_offset: Offset of the border along X to avoid Z-fighting.
+
+        Returns:
+            ``(canvas, border)`` — the canvas :class:`pyvista.PolyData` and
+            the border :class:`pyvista.PolyData` (or ``None`` if *show_border* is False).
+        """
         if center is None:
             center = np.array([0.0, 2.0, 0.175 - 0.03], dtype=float)
         else:
@@ -444,7 +596,28 @@ class DvrkRealtimeViz:
         label_size: int = 15,
         label_z_offset: float = 0.0,
     ):
-        waypoints_xyz = np.asarray(waypoints_xyz, dtype=float)
+        """Add a named set of labelled waypoint markers to the plotter.
+
+        Waypoints are rendered as spheres with sequential numeric labels
+        ``1, 2, …, N``.  Individual points can be hidden with
+        :meth:`hide_canvas_waypoint` and restored with :meth:`reset_canvas_waypoints`.
+
+        Args:
+            name: Unique identifier for this waypoint set.
+            waypoints_xyz: Waypoint positions, shape ``(N, 3)``.
+            color: Sphere colour.
+            point_size: Rendered sphere size in pixels.
+            alpha: Opacity ``[0, 1]``.
+            label_color: Text colour for the numeric labels.
+            label_size: Font size of the labels.
+            label_z_offset: Additional Z offset applied to label positions.
+
+        Returns:
+            The newly created :class:`_WaypointSet`.
+
+        Raises:
+            ValueError: If *name* already exists or *waypoints_xyz* is not ``(N, 3)``.
+        """
         if waypoints_xyz.ndim != 2 or waypoints_xyz.shape[1] != 3:
             raise ValueError("waypoints_xyz must be shape (N, 3)")
         if name in self._waypoint_sets:
@@ -489,6 +662,19 @@ class DvrkRealtimeViz:
         return self._waypoint_sets[name]
 
     def hide_canvas_waypoint(self, name: str, index: int) -> None:
+        """Hide a single waypoint from a named set.
+
+        Removes the point from the rendered poly and hides its label actor.
+        Has no effect if the waypoint is already hidden.
+
+        Args:
+            name: Waypoint set identifier.
+            index: 0-based index of the waypoint to hide.
+
+        Raises:
+            KeyError: If *name* is not registered.
+            IndexError: If *index* is out of range.
+        """
         if name not in self._waypoint_sets:
             raise KeyError(f"Unknown waypoint set: {name}")
 
@@ -510,6 +696,14 @@ class DvrkRealtimeViz:
         self.plotter.render()
 
     def reset_canvas_waypoints(self, name: str) -> None:
+        """Restore all waypoints in a named set to their original positions/visibility.
+
+        Args:
+            name: Waypoint set identifier.
+
+        Raises:
+            KeyError: If *name* is not registered.
+        """
         if name not in self._waypoint_sets:
             raise KeyError(f"Unknown waypoint set: {name}")
 
@@ -529,11 +723,29 @@ class DvrkRealtimeViz:
     def add_waypoint_highlight_marker(
         self, size: int = 28, color: str = "yellow"
     ) -> pv.PolyData:
+        """Add a large point marker used to highlight an active waypoint.
+
+        A convenience wrapper around :meth:`add_fk_marker` with defaults
+        suitable for highlighting a selected waypoint.
+
+        Args:
+            size: Rendered point size in pixels.
+            color: Marker colour.
+
+        Returns:
+            Single-point :class:`pyvista.PolyData` (initially at the origin).
+        """
         return self.add_fk_marker(size=size, color=color)
 
     def update_waypoint_highlight(
         self, marker: pv.PolyData, point: np.ndarray | None
     ) -> None:
+        """Move or hide the waypoint highlight marker.
+
+        Args:
+            marker: Marker previously returned by :meth:`add_waypoint_highlight_marker`.
+            point: New 3-D position, or ``None`` to hide the marker.
+        """
         if point is None:
             marker.points = np.empty((0, 3), dtype=float)
         else:
@@ -541,9 +753,11 @@ class DvrkRealtimeViz:
         marker.Modified()
 
     def show(self) -> None:
+        """Open the PyVista window and block until it is closed."""
         self.plotter.show()
 
     def reset_camera(self) -> None:
+        """Reset the camera to fit all visible scene contents and re-render."""
         self.plotter.reset_camera()
         self.plotter.render()
 
@@ -553,11 +767,27 @@ class DvrkRealtimeViz:
         focal_point=(0.0, 0.0, 0.0),
         viewup=(0.0, 0.0, 1.0),
     ) -> None:
+        """Set the camera position, focal point, and up-vector.
+
+        Args:
+            position: Camera position in world coordinates ``(x, y, z)``.
+            focal_point: Point the camera looks at ``(x, y, z)``.
+            viewup: Camera up-vector ``(x, y, z)``.
+        """
         self.plotter.camera_position = [position, focal_point, viewup]
         self.plotter.render()
 
     @staticmethod
     def _transform_points(points: np.ndarray, T: np.ndarray) -> np.ndarray:
+        """Apply a ``(4, 4)`` homogeneous transform to an ``(N, 3)`` point array.
+
+        Args:
+            points: Point array, shape ``(N, 3)``.
+            T: Homogeneous transform ``(4, 4)``.
+
+        Returns:
+            Transformed points, shape ``(N, 3)``.
+        """
         ones = np.ones((points.shape[0], 1), dtype=float)
         points_h = np.hstack([points, ones])
         transformed = (T @ points_h.T).T
@@ -570,6 +800,21 @@ def visualize(
     show_frames: bool = False,
     alpha: float = 1.0,
 ) -> DvrkRealtimeViz:
+    """Create a :class:`DvrkRealtimeViz` pre-loaded with a single robot.
+
+    Convenience factory for quick visualisation scripts.
+
+    Args:
+        robot: Robot model conforming to :class:`~src.robots.protocols.VisualRobotLike`.
+        theta: Joint configuration, shape ``(dof,)``.  Defaults to the robot's
+            current configuration.
+        show_frames: Whether to draw joint-frame axis arrows.
+        alpha: Mesh opacity ``[0, 1]``.
+
+    Returns:
+        :class:`DvrkRealtimeViz` with the robot added but the window not yet shown.
+        Call :meth:`DvrkRealtimeViz.show` to open the window.
+    """
     if theta is None:
         theta = robot.get_theta()
     viz = DvrkRealtimeViz(show_frames=show_frames, alpha=float(alpha))
@@ -578,6 +823,16 @@ def visualize(
 
 
 def set_camera_view(scene, eye, target):
+    """Point a viewer or plotter camera at a target from a given eye position.
+
+    Accepts either a :class:`DvrkRealtimeViz` (calls :meth:`~DvrkRealtimeViz.set_camera`)
+    or a raw :class:`pyvista.Plotter`.  Up-vector is always ``+Z``.
+
+    Args:
+        scene: :class:`DvrkRealtimeViz` or :class:`pyvista.Plotter`.
+        eye: Camera position ``(x, y, z)`` in world coordinates.
+        target: Focal point ``(x, y, z)`` in world coordinates.
+    """
     eye = np.asarray(eye, dtype=float)
     target = np.asarray(target, dtype=float)
 

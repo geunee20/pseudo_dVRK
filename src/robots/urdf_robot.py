@@ -7,7 +7,17 @@ from src.utils.urdf_parser import parse_urdf
 
 
 class UrdfRobot(Robot):
-    """Robot base class for URDF-backed robots with standard active-joint rules."""
+    """Concrete robot base class that builds itself from a URDF file.
+
+    On construction the URDF at ``robot_root / urdf_filename`` is parsed via
+    :func:`~src.utils.urdf_parser.parse_urdf`.  Active joints are determined
+    by :meth:`_default_active_joint_names` (all non-fixed, non-mimic joints).
+    The kinematic model is finalised automatically by calling
+    :meth:`~src.robots.robot.Robot.finalize`.
+
+    Subclasses only need to supply constructor keyword arguments; all
+    heavy lifting is done here.
+    """
 
     def __init__(
         self,

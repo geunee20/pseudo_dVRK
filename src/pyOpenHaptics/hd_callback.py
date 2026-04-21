@@ -66,6 +66,22 @@ def bind_device_callback(input_function, device_id):
     - plain Python functions (no args)
     - callbacks already decorated with @hd_callback
     """
+    """Bind a servo callback to a specific haptic device handle.
+
+    Wraps *input_function* in a ``CFUNCTYPE`` that calls
+    ``hdMakeCurrentDevice(device_id)`` before each tick, ensuring the
+    correct device is active in multi-device setups.
+
+    Works with both plain Python functions (no args) and callbacks already
+    decorated with ``@hd_callback`` (single ``pUserData`` arg).
+
+    Args:
+        input_function: Servo-loop function to call each haptic tick.
+        device_id: Integer device handle (``HHD``) returned by :func:`~hd.init_device`.
+
+    Returns:
+        ``CFUNCTYPE``-wrapped callback suitable for the OpenHaptics scheduler.
+    """
 
     @functools.wraps(input_function)
     @CFUNCTYPE(HDCallbackCode, POINTER(c_void_p))
@@ -88,6 +104,12 @@ def bind_device_callback(input_function, device_id):
 
 
 def hdAsyncSheduler(callback):
+    """Schedule a callback on the OpenHaptics asynchronous (high-rate) scheduler.
+
+    Args:
+        callback: ``CFUNCTYPE``-wrapped function pointer compatible with
+            ``hdScheduleAsynchronous``.
+    """
     pUserData = c_void_p()
     _lib_hd.hdScheduleAsynchronous(
         callback, byref(pUserData), HD_MAX_SCHEDULER_PRIORITY
@@ -95,5 +117,11 @@ def hdAsyncSheduler(callback):
 
 
 def hdSyncSheduler(callback):
+    """Schedule a callback on the OpenHaptics synchronous scheduler.
+
+    Args:
+        callback: ``CFUNCTYPE``-wrapped function pointer compatible with
+            ``hdScheduleSynchronous``.
+    """
     pUserData = c_void_p()
     _lib_hd.hdScheduleSynchronous(callback, byref(pUserData), HD_MAX_SCHEDULER_PRIORITY)

@@ -1,4 +1,4 @@
-from ctypes import CDLL, POINTER, Structure, c_char_p, c_int
+from ctypes import CDLL, POINTER, c_char_p
 from typing import Any, List, Optional
 from sys import platform
 
@@ -150,6 +150,21 @@ def error_code_name(error_code: int) -> str:
 
 
 def init_device(name: str = "Default Device") -> int:
+    """Initialise a PHANTOM haptic device and return its handle.
+
+    Wraps ``hdInitDevice``.  Raises :class:`~src.pyOpenHaptics.exceptions.DeviceInitException`
+    if the device cannot be opened (handle == ``HD_BAD_HANDLE``).
+
+    Args:
+        name: Device name string as configured in the OpenHaptics driver.
+            Pass ``"Default Device"`` to open the first available device.
+
+    Returns:
+        Integer device handle (``HHD``) to be passed to ``hdMakeCurrentDevice``.
+
+    Raises:
+        DeviceInitException: If ``hdInitDevice`` returns ``HD_BAD_HANDLE``.
+    """
     _lib_hd.hdInitDevice.argtypes = [c_char_p]
     _lib_hd.hdInitDevice.restype = HHD
     device_id = _lib_hd.hdInitDevice(name.encode())
@@ -161,14 +176,37 @@ def init_device(name: str = "Default Device") -> int:
 
 
 def get_buttons() -> int:
+    """Return the current button bitmask of the active haptic device.
+
+    Bit 0 = button 1, bit 1 = button 2, etc.  Must be called inside an
+    ``hdBeginFrame`` / ``hdEndFrame`` block.
+
+    Returns:
+        Integer bitmask where each set bit indicates a pressed button.
+    """
     return _get_integerv(HD_CURRENT_BUTTONS, HDint).value
 
 
 def get_transform() -> Any:  # hduMatrix
+    """Return the current 4×4 column-major homogeneous transform of the stylus.
+
+    Returns:
+        ``hduMatrix`` (ctypes array of 16 doubles, column-major) representing
+        the stylus pose in device millimetre coordinates.
+    """
     return _get_doublev(HD_CURRENT_TRANSFORM, hduMatrix)
 
 
 def get_velocity() -> np.ndarray:
+    """Return the current stylus velocity in logical (canvas) frame, in mm/s.
+
+    Applies the inverse of the axis permutation set by :func:`set_axis_mapping`
+    so that the velocity components match the logical coordinate frame of the
+    forces commanded via :func:`set_force`.
+
+    Returns:
+        Velocity vector ``[vx, vy, vz]``, shape ``(3,)``, in mm/s.
+    """
     raw = _get_doublev(HD_CURRENT_VELOCITY, hduVector3Dd)
     raw_np = np.array([raw[0], raw[1], raw[2]], dtype=float)
     # Apply inverse of the axis mapping used in set_force so that velocity is in
@@ -179,22 +217,52 @@ def get_velocity() -> np.ndarray:
 
 
 def get_joint_angles() -> Any:  # hduVector3Dd
+    """Return the current joint angles of the device arm (shoulder, elbow, yaw).
+
+    Returns:
+        ``hduVector3Dd`` with three joint angles in radians.
+    """
     return _get_doublev(HD_CURRENT_JOINT_ANGLES, hduVector3Dd)
 
 
 def get_gimbal_angles() -> Any:  # hduVector3Dd
+    """Return the current gimbal (wrist) angles of the device stylus.
+
+    Returns:
+        ``hduVector3Dd`` with three gimbal angles in radians.
+    """
     return _get_doublev(HD_CURRENT_GIMBAL_ANGLES, hduVector3Dd)
 
 
 def get_joint_angle_references() -> Any:  # hduVector3Dd
+    """Return factory-calibrated joint angle reference offsets.
+
+    Returns:
+        ``hduVector3Dd`` with three reference angle values in radians.
+    """
     return _get_doublev(HD_JOINT_ANGLE_REFERENCES, hduVector3Dd)
 
 
 def get_last_error_info() -> HDErrorInfo:
+    """Return the most recent OpenHaptics error info structure.
+
+    Returns:
+        :class:`~src.pyOpenHaptics.hd_define.HDErrorInfo` with ``errorCode``,
+        ``internalErrorCode``, and ``hHD`` fields.
+    """
     return _get_error()
 
 
 def get_error(raise_on_error: bool = False) -> bool:
+    """Check for a pending OpenHaptics error and optionally raise an exception.
+
+    Args:
+        raise_on_error: If ``True``, raise the appropriate exception class
+            (from :mod:`src.pyOpenHaptics.exceptions`) when an error is detected.
+
+    Returns:
+        ``True`` if an error was present, ``False`` if ``HD_SUCCESS``.
+    """
     info = _get_error()
     error = int(info.errorCode)
     if error == HD_SUCCESS:
@@ -213,6 +281,17 @@ def get_error(raise_on_error: bool = False) -> bool:
 
 
 def set_force(feedback: List[float]) -> None:
+    """Command the haptic device to render a force vector.
+
+    The force is specified in the logical (canvas) coordinate frame and
+    re-mapped to the device frame using the current axis permutation / sign.
+
+    Args:
+        feedback: Desired force ``[Fx, Fy, Fz]`` in Newtons.
+
+    Raises:
+        ValueError: If *feedback* does not have exactly 3 elements.
+    """
     feedback_arr = np.asarray(feedback, dtype=float)
     if feedback_arr.shape != (3,):
         raise ValueError("feedback must be length-3: [Fx, Fy, Fz]")
@@ -222,6 +301,20 @@ def set_force(feedback: List[float]) -> None:
 
 
 def set_axis_mapping(perm: List[int], sign: List[float] | None = None) -> None:
+    """Configure the axis permutation and sign flip applied to forces and velocities.
+
+    Sets the global ``_axis_perm`` / ``_axis_sign`` used by :func:`set_force`
+    and :func:`get_velocity` to remap between device and canvas frames.
+
+    Args:
+        perm: Length-3 permutation of ``[0, 1, 2]``, e.g. ``[1, 2, 0]``
+            maps device axis 0 → canvas axis 1, etc.
+        sign: Optional length-3 sign vector, each ±1.  Defaults to all ones.
+
+    Raises:
+        ValueError: If *perm* or *sign* have wrong shape or *perm* is not a
+            valid permutation.
+    """
     global _axis_perm, _axis_sign
 
     perm_np = np.asarray(perm, dtype=int)
@@ -242,30 +335,65 @@ def set_axis_mapping(perm: List[int], sign: List[float] | None = None) -> None:
 
 
 def get_axis_mapping() -> tuple[list[int], list[float]]:
+    """Return the current axis permutation and sign mapping.
+
+    Returns:
+        ``(perm, sign)`` — copies of the permutation and sign arrays as Python lists.
+    """
     return _axis_perm.tolist(), _axis_sign.tolist()
 
 
 def get_update_rate() -> int:
+    """Return the configured servo-loop update rate in Hz.
+
+    Returns:
+        Integer update rate (e.g. 1000).
+    """
     return int(_get_integerv(HD_UPDATE_RATE, HDint).value)
 
 
 def get_instantaneous_update_rate() -> int:
+    """Return the measured instantaneous update rate in Hz.
+
+    Returns:
+        Integer instantaneous rate measured in the last servo tick.
+    """
     return int(_get_integerv(HD_INSTANTANEOUS_UPDATE_RATE, HDint).value)
 
 
 def get_nominal_max_force() -> float:
+    """Return the device's nominal maximum force in Newtons.
+
+    Returns:
+        Float peak force limit (N).
+    """
     return float(_get_doublev(HD_NOMINAL_MAX_FORCE, HDdouble).value)
 
 
 def get_nominal_max_continuous_force() -> float:
+    """Return the device's nominal maximum continuous force in Newtons.
+
+    Returns:
+        Float continuous force limit (N).
+    """
     return float(_get_doublev(HD_NOMINAL_MAX_CONTINUOUS_FORCE, HDdouble).value)
 
 
 def get_nominal_max_stiffness() -> float:
+    """Return the device's nominal maximum stiffness in N/mm.
+
+    Returns:
+        Float stiffness limit (N/mm).
+    """
     return float(_get_doublev(HD_NOMINAL_MAX_STIFFNESS, HDdouble).value)
 
 
 def get_nominal_max_damping() -> float:
+    """Return the device's nominal maximum damping in N·s/mm.
+
+    Returns:
+        Float damping limit (N·s/mm).
+    """
     return float(_get_doublev(HD_NOMINAL_MAX_DAMPING, HDdouble).value)
 
 

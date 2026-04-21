@@ -19,6 +19,24 @@ class CameraPose:
 
 
 class ECM(UrdfRobot):
+    """Endoscope Camera Manipulator (ECM) robot with camera-pose helpers.
+
+    Extends :class:`~src.robots.urdf_robot.UrdfRobot` with:
+
+    * An optional ``base_transform`` that maps the robot's local FK frame
+      into the world frame.
+    * :meth:`scope_camera_pose` / :meth:`scope_stereo_camera_poses` for
+      computing PyVista camera parameters directly from the ECM joint state.
+    * :meth:`from_camera_pose` class method to construct an ECM whose
+      base transform is chosen so the scope tip matches a desired world pose.
+
+    Args:
+        robot_root: Directory containing ``ecm.urdf`` and ``meshes/``.
+        world_link: Name of the root link in the URDF tree.
+        base_transform: Optional 4×4 transform from the robot base frame to
+            the world frame.  If ``None``, identity is used.
+    """
+
     def __init__(
         self,
         robot_root: str | Path = "../urdfs/ecm",
@@ -45,11 +63,26 @@ class ECM(UrdfRobot):
         world_link: str = "world",
         initial_q: Optional[np.ndarray] = None,
     ) -> "ECM":
-        """
-        Create an ECM whose base_transform places the tool tip
-        at `camera_world_tf` when the joint configuration is `initial_q`.
+        """Construct an ECM whose scope tip is placed at *camera_world_tf*.
 
-        base_transform = camera_world_tf @ inv(FK_local(initial_q))
+        Computes the required ``base_transform`` by inverting the FK at
+        *initial_q*:
+
+        .. math::
+
+            T_{\\text{base}}^{\\text{world}}
+            = T_{\\text{cam}}^{\\text{world}} \\cdot
+              \\bigl(T_{\\text{FK}}(q_0)\\bigr)^{-1}
+
+        Args:
+            camera_world_tf: 4×4 desired scope-tip pose in the world frame.
+            robot_root: Directory containing the ECM URDF and meshes.
+            world_link: Name of the root link in the URDF tree.
+            initial_q: (dof,) joint configuration at which the scope tip should
+                coincide with *camera_world_tf*.  Defaults to all-zeros.
+
+        Returns:
+            :class:`ECM` instance with ``base_transform`` set accordingly.
         """
         tmp = cls(robot_root=robot_root, world_link=world_link, base_transform=None)
         q = (
@@ -68,7 +101,24 @@ class ECM(UrdfRobot):
         theta: Optional[np.ndarray | List[float]] = None,
         base_transform: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """Return tool transform in world frame."""
+        """Return the scope-tip (tool) pose in the world frame.
+
+        Applies the optional *base_transform* on top of the URDF tree FK:
+
+        .. math::
+
+            T_{\\text{tool}}^{\\text{world}} = T_{\\text{base}}^{\\text{world}}
+                \\cdot T_{\\text{FK}}(\\theta)
+
+        Args:
+            theta: (dof,) joint configuration.  Defaults to the current
+                stored joint state.
+            base_transform: Override for ``self.base_transform``.  If both
+                are ``None``, the FK result is returned unchanged.
+
+        Returns:
+            4×4 homogeneous scope-tip pose in the world frame.
+        """
         theta_arr = (
             None if theta is None else np.asarray(theta, dtype=float).reshape(-1)
         )
@@ -86,10 +136,30 @@ class ECM(UrdfRobot):
         optical_tilt_deg: float = 0.0,
         focus_distance: float = 0.2,
     ) -> CameraPose:
-        """
-        Build a monocular camera pose from tool frame.
+        """Compute a monocular camera pose from the current ECM joint state.
 
-        Optical tilt rotates around local +X axis of the tool frame.
+        The camera is placed at the scope tip.  A tilt about the local
+        :math:`+X` axis (the optical tilt) adjusts the viewing direction:
+
+        .. math::
+
+            \\hat{y}' &= c\\,\\hat{y} + s\\,\\hat{z} \\\\
+            \\hat{z}' &= -s\\,\\hat{y} + c\\,\\hat{z}
+
+        where :math:`c = \\cos(\\alpha)`, :math:`s = \\sin(\\alpha)`,
+        :math:`\\alpha = \\text{optical_tilt_deg}`.
+
+        Args:
+            theta: (dof,) joint configuration.  Defaults to the stored state.
+            base_transform: Optional base-to-world override.
+            optical_tilt_deg: Optical tilt angle around the scope X axis
+                (degrees).  Typically 0° or 30° for 0°/30° scopes.
+            focus_distance: Distance (metres) from the camera origin to the
+                focal point along the viewing direction.
+
+        Returns:
+            :class:`CameraPose` with ``position``, ``focal_point``, and
+            ``viewup`` vectors.
         """
         T_world_tool = self.tool_transform_world(
             theta=theta, base_transform=base_transform
@@ -123,11 +193,30 @@ class ECM(UrdfRobot):
         baseline: float = 0.008,
         focus_distance: float = 0.2,
     ) -> Tuple[CameraPose, CameraPose]:
-        """
-        Build a parallel stereo camera pair from tool frame.
+        """Compute a parallel stereo camera pair from the current ECM joint state.
 
-        left/right are translated by +/- baseline/2 along local +X axis,
-        while sharing the same forward and up directions.
+        Left and right cameras are translated by :math:`\\pm \\text{baseline}/2`
+        along the local :math:`+X` axis of the scope tip while sharing the same
+        forward direction and viewup:
+
+        .. math::
+
+            p_{\\text{left}}  &= p_{\\text{center}} - \\tfrac{d}{2}\\,\\hat{x} \\\\
+            p_{\\text{right}} &= p_{\\text{center}} + \\tfrac{d}{2}\\,\\hat{x}
+
+        where :math:`d` is *baseline*.
+
+        Args:
+            theta: (dof,) joint configuration.  Defaults to the stored state.
+            base_transform: Optional base-to-world override.
+            optical_tilt_deg: Optical tilt angle (degrees) applied before the
+                stereo split.
+            baseline: Stereo baseline (metres), i.e. inter-camera separation.
+            focus_distance: Distance (metres) to the focal point along the
+                shared viewing direction.
+
+        Returns:
+            ``(left_pose, right_pose)`` — each a :class:`CameraPose`.
         """
         center = self.scope_camera_pose(
             theta=theta,
