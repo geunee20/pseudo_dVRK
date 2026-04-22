@@ -58,7 +58,7 @@ class EcmControl:
 def build_arg_parser() -> argparse.ArgumentParser:
     """Return an argument parser for the ECM camera simulation script.
 
-    Adds ``--cameras`` (1 or 2) and ``--scope-deg`` (0 or 30) arguments.
+    Adds ``--cameras`` (1 or 2) and ``--scope-deg`` (float) arguments.
     Defaults come from the project ``settings.py``.
 
     Returns:
@@ -81,8 +81,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--scope-deg",
         type=float,
         default=ECM_CAMERA_DEFAULT_SCOPE_DEG,
-        choices=[0.0, 30.0],
-        help="Optical tilt angle in degrees (0 or 30)",
+        help="Optical tilt angle in degrees",
     )
     return parser
 

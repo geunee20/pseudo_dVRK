@@ -70,10 +70,15 @@ ECM_CAMERA_FOCUS_DISTANCE_M = 0.3
 
 # ECM camera simulation defaults
 ECM_CAMERA_DEFAULT_COUNT = 2  # allowed values: 1 (mono), 2 (stereo)
-ECM_CAMERA_DEFAULT_SCOPE_DEG = 0.0  # allowed values: 0.0, 30.0
+ECM_CAMERA_DEFAULT_SCOPE_DEG = 3.0  # any float tilt angle in degrees
 ECM_CAMERA_YAW_STEP_DEG = 1.0
 ECM_CAMERA_PITCH_STEP_DEG = 1.0
 ECM_CAMERA_INSERTION_STEP_M = 0.002
 
-CAMERA_ROLL_DEG = 90.0  # Compensates for the additional world-Z.
+# If True and ECM_CAMERA_DEFAULT_COUNT == 2, render stereo in one viewport
+# by alternating left/right camera poses at ECM_WIGGLE_STEREO_FPS.
+ECM_WIGGLE_STEREO = True
+ECM_WIGGLE_STEREO_FPS = 15.0
+
+CAMERA_ROLL_DEG = 0.0  # Keep camera up aligned with ECM base -Z.
 CAMERA_Z_M = 0.3  # Initial camera Z in world frame for teleoperation examples
