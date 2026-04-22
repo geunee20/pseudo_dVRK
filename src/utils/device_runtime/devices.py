@@ -10,6 +10,7 @@ from src.pyOpenHaptics.hd import (
     get_buttons,
     get_gimbal_angles,
     get_joint_angles,
+    get_velocity,
     set_force,
 )
 from src.pyOpenHaptics.hd_define import HD_DEVICE_BUTTON_1, HD_DEVICE_BUTTON_2
@@ -30,6 +31,8 @@ class DeviceState:
         button: Convenience alias for ``clutch_button``.
         position: Current stylus tip position ``[x, y, z]`` in device space
             (metres).
+        velocity: Current stylus Cartesian velocity ``[vx, vy, vz]`` in the
+            logical device frame (metres/second).
         joints: 6-element joint angle list in the order
             ``[q0, q1, q2_corrected, gimbal0, gimbal1, gimbal2]`` (radians).
         gimbals: Raw gimbal angle list as read from the device.
@@ -41,6 +44,7 @@ class DeviceState:
     gripper_button: bool = False
     button: bool = False
     position: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    velocity: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     joints: list[float] = field(default_factory=lambda: [0.0] * 6)
     gimbals: list[float] = field(default_factory=list)
     force: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
@@ -78,6 +82,7 @@ def make_state_callback(device_state: DeviceState, joint2_coeff: float):
     def state_callback():
         joints = get_joint_angles()
         gimbals = get_gimbal_angles()
+        velocity_mm_s = np.asarray(get_velocity(), dtype=float).reshape(3)
 
         device_state.joints = [
             joints[0],
@@ -87,6 +92,7 @@ def make_state_callback(device_state: DeviceState, joint2_coeff: float):
             gimbals[1],
             gimbals[2],
         ]
+        device_state.velocity = (1e-3 * velocity_mm_s).tolist()
 
         set_force(device_state.force)
 

@@ -94,6 +94,35 @@ class LinkVisual:
     origin_rpy: np.ndarray
 
 
+@dataclass
+class LinkCollision:
+    """Collision geometry attached to a URDF link.
+
+    Attributes:
+        link_name: Name of the parent link.
+        geometry_type: One of ``"mesh"``, ``"box"``, ``"sphere"``, or
+            ``"cylinder"``.
+        origin_xyz: (3,) local translation of the collision shape in the link
+            frame (metres).
+        origin_rpy: (3,) local roll-pitch-yaw orientation of the collision
+            shape in the link frame (radians).
+        mesh_path: Absolute path to the collision mesh, when
+            ``geometry_type == "mesh"``.
+        size: Box side lengths ``(x, y, z)`` for box collisions.
+        radius: Sphere/cylinder radius in metres.
+        length: Cylinder length in metres.
+    """
+
+    link_name: str
+    geometry_type: str
+    origin_xyz: np.ndarray
+    origin_rpy: np.ndarray
+    mesh_path: str | None = None
+    size: np.ndarray | None = None
+    radius: float | None = None
+    length: float | None = None
+
+
 # =========================
 # Base Interface
 # =========================
@@ -135,6 +164,7 @@ class Robot(ABC):
         self.links: Dict[str, dict] = {}
         self.joints: Dict[str, JointInfo] = {}
         self.visuals: Dict[str, List[LinkVisual]] = {}
+        self.collisions: Dict[str, List[LinkCollision]] = {}
         self.children_of_link: Dict[str, List[str]] = {}
 
         # DOF
@@ -314,6 +344,14 @@ class Robot(ABC):
             return out
         return list(self.visuals.get(link, []))
 
+    def get_link_collisions(self, link: Optional[str] = None) -> List[LinkCollision]:
+        if link is None:
+            out = []
+            for collisions in self.collisions.values():
+                out.extend(collisions)
+            return out
+        return list(self.collisions.get(link, []))
+
     # =========================
     # Registration helpers
     # =========================
@@ -321,6 +359,7 @@ class Robot(ABC):
     def add_link(self, name: str) -> None:
         self.links[name] = {"name": name}
         self.visuals.setdefault(name, [])
+        self.collisions.setdefault(name, [])
 
     def add_joint(self, joint: JointInfo, active: bool = False) -> None:
         self.joints[joint.name] = joint
@@ -330,6 +369,9 @@ class Robot(ABC):
 
     def add_visual(self, visual: LinkVisual) -> None:
         self.visuals.setdefault(visual.link_name, []).append(visual)
+
+    def add_collision(self, collision: LinkCollision) -> None:
+        self.collisions.setdefault(collision.link_name, []).append(collision)
 
     def resolve_mesh_path(self, filename: str) -> Path:
         return self.mesh_root / filename

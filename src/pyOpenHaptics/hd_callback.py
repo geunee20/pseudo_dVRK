@@ -47,6 +47,7 @@ def hd_callback(input_function):
     @functools.wraps(input_function)
     @CFUNCTYPE(HDCallbackCode, POINTER(c_void_p))
     def _callback(pUserData):
+        """C-compatible servo-loop tick; calls the wrapped user function."""
         device_id = int(get_current_device())
         begin_frame(device_id)
         _call_user_function(input_function)
@@ -60,12 +61,6 @@ def hd_callback(input_function):
 
 
 def bind_device_callback(input_function, device_id):
-    """Bind a callback to a specific device handle.
-
-    Works with both:
-    - plain Python functions (no args)
-    - callbacks already decorated with @hd_callback
-    """
     """Bind a servo callback to a specific haptic device handle.
 
     Wraps *input_function* in a ``CFUNCTYPE`` that calls
@@ -86,6 +81,7 @@ def bind_device_callback(input_function, device_id):
     @functools.wraps(input_function)
     @CFUNCTYPE(HDCallbackCode, POINTER(c_void_p))
     def _callback(pUserData):
+        """C-compatible servo-loop tick bound to a specific device handle."""
         make_current_device(device_id)
         begin_frame(device_id)
 

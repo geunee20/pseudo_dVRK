@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from src.robots.robot import JointInfo, JointLimit, LinkVisual, Mimic
+from src.robots.robot import JointInfo, JointLimit, LinkCollision, LinkVisual, Mimic
 
 
 def _clean_name(text: str | None) -> str:
@@ -119,14 +119,15 @@ def _prefer_stl_if_available(mesh_path: Path) -> Path:
 
 
 def parse_urdf(robot: Any, urdf_path: str | Path) -> None:
-    """Parse a URDF file and populate *robot* with links, joints, and visuals.
+    """Parse a URDF file and populate *robot* with links, joints, visuals, and collisions.
 
     Iterates over the top-level ``<link>`` and ``<joint>`` elements and calls
     the corresponding ``robot.add_link``, ``robot.add_joint``, and
     ``robot.add_visual`` methods.  The following sub-elements are handled:
 
-    * ``<visual><origin>`` and ``<visual><geometry><mesh>`` for visual mesh
-      registration.
+        * ``<visual><origin>`` and ``<visual><geometry><mesh>`` for visual mesh
+            registration.
+        * ``<collision>`` geometry for mesh, box, sphere, and cylinder shapes.
     * ``<joint>`` attributes: ``type``, ``<parent>``, ``<child>``,
       ``<origin>``, ``<axis>``, ``<limit>``, ``<mimic>``.
 
@@ -139,8 +140,9 @@ def parse_urdf(robot: Any, urdf_path: str | Path) -> None:
         :class:`~src.robots.urdf_robot.UrdfRobot`).
 
     Args:
-        robot: Partially-constructed robot object exposing ``add_link``,
-            ``add_joint``, ``add_visual``, and ``resolve_mesh_path``.
+            robot: Partially-constructed robot object exposing ``add_link``,
+            ``add_joint``, ``add_visual``, ``add_collision``, and
+            ``resolve_mesh_path``.
         urdf_path: Path to the ``.urdf`` file to parse.
     """
     tree = ET.parse(urdf_path)
@@ -152,12 +154,13 @@ def parse_urdf(robot: Any, urdf_path: str | Path) -> None:
             robot.add_link(link_name)
 
             for child in elem:
-                if child.tag.split("}")[-1] != "visual":
+                child_tag = child.tag.split("}")[-1]
+                if child_tag not in {"visual", "collision"}:
                     continue
 
                 xyz = np.zeros(3)
                 rpy = np.zeros(3)
-                mesh = None
+                geometry: dict[str, Any] = {"geometry_type": None}
 
                 for v in child:
                     vtag = v.tag.split("}")[-1]
@@ -168,20 +171,68 @@ def parse_urdf(robot: Any, urdf_path: str | Path) -> None:
 
                     elif vtag == "geometry":
                         for g in v:
-                            if g.tag.split("}")[-1] == "mesh":
+                            gtag = g.tag.split("}")[-1]
+                            if gtag == "mesh":
                                 mesh = g.attrib.get("filename")
+                                if mesh is None:
+                                    continue
+                                mesh_rel = _strip_package_prefix(mesh)
+                                mesh_path = robot.resolve_mesh_path(mesh_rel)
+                                geometry = {
+                                    "geometry_type": "mesh",
+                                    "mesh_path": str(
+                                        _prefer_stl_if_available(mesh_path)
+                                    ),
+                                }
+                            elif gtag == "box":
+                                geometry = {
+                                    "geometry_type": "box",
+                                    "size": _parse_vec3(g.attrib.get("size")),
+                                }
+                            elif gtag == "sphere":
+                                geometry = {
+                                    "geometry_type": "sphere",
+                                    "radius": _parse_scalar(
+                                        g.attrib.get("radius"), 0.0
+                                    ),
+                                }
+                            elif gtag == "cylinder":
+                                geometry = {
+                                    "geometry_type": "cylinder",
+                                    "radius": _parse_scalar(
+                                        g.attrib.get("radius"), 0.0
+                                    ),
+                                    "length": _parse_scalar(
+                                        g.attrib.get("length"), 0.0
+                                    ),
+                                }
 
-                if mesh is not None:
-                    mesh_rel = _strip_package_prefix(mesh)
-                    mesh_path = robot.resolve_mesh_path(mesh_rel)
-                    mesh_path = _prefer_stl_if_available(mesh_path)
+                geometry_type = geometry.get("geometry_type")
+                if geometry_type is None:
+                    continue
 
+                if child_tag == "visual":
+                    if geometry_type != "mesh":
+                        continue
                     robot.add_visual(
                         LinkVisual(
                             link_name=link_name,
-                            mesh_path=str(mesh_path),
+                            mesh_path=geometry["mesh_path"],
                             origin_xyz=xyz,
                             origin_rpy=rpy,
+                        )
+                    )
+                else:
+                    robot.add_collision(
+                        LinkCollision(
+                            link_name=link_name,
+                            geometry_type=str(geometry_type),
+                            origin_xyz=xyz,
+                            origin_rpy=rpy,
+                            mesh_path=geometry.get("mesh_path"),
+                            size=geometry.get("size"),
+                            radius=geometry.get("radius"),
+                            length=geometry.get("length"),
                         )
                     )
 

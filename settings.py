@@ -77,3 +77,56 @@ ECM_CAMERA_INSERTION_STEP_M = 0.002
 
 CAMERA_ROLL_DEG = 90.0  # Compensates for the additional world-Z.
 CAMERA_Z_M = 0.3  # Initial camera Z in world frame for teleoperation examples
+
+# ============================================================================
+# World / Collision Parameters
+# ============================================================================
+
+WORLD_FLOOR_SIZE_X_M = 0.6
+WORLD_FLOOR_SIZE_Y_M = 0.6
+WORLD_FLOOR_Z_M = 0.0
+WORLD_FLOOR_THICKNESS_M = 0.01
+WORLD_FLOOR_FRICTION = 0.0
+WORLD_FLOOR_DENSITY_KG_M3 = 1.0
+WORLD_FLOOR_RESTITUTION = 0.05
+
+
+WORLD_WALL_THICKNESS_M = 0.01
+WORLD_WALL_HEIGHT_M = 0.08
+WORLD_WALL_FRICTION = 0.6
+WORLD_WALL_DENSITY_KG_M3 = 2400.0
+WORLD_WALL_RESTITUTION = 0.1
+
+
+# Target A (assigned to left PSM)
+TELEOP_TARGET_A_NAME = "target_a"
+TELEOP_TARGET_A_SHAPE = "sphere"  # "sphere" or "cube"
+TELEOP_TARGET_A_POSITION_M = (0.2, 0.15, 0.03)
+TELEOP_TARGET_A_RADIUS_M = 0.018  # used when SHAPE == "sphere"
+TELEOP_TARGET_A_SIZE_M = (0.03, 0.03, 0.03)  # used when SHAPE == "cube"
+TELEOP_TARGET_A_FRICTION = 0.1
+TELEOP_TARGET_A_DENSITY_KG_M3 = 1.0
+TELEOP_TARGET_A_RESTITUTION = 0.4
+TELEOP_TARGET_A_COLOR = "deepskyblue"
+
+# Target B (assigned to right PSM)
+TELEOP_TARGET_B_NAME = "target_b"
+TELEOP_TARGET_B_SHAPE = "cube"  # "sphere" or "cube"
+TELEOP_TARGET_B_POSITION_M = (0.2, -0.15, 0.03)
+TELEOP_TARGET_B_RADIUS_M = 0.018  # used when SHAPE == "sphere"
+TELEOP_TARGET_B_SIZE_M = (0.03, 0.03, 0.03)  # used when SHAPE == "cube"
+TELEOP_TARGET_B_FRICTION = 0.1
+TELEOP_TARGET_B_DENSITY_KG_M3 = 1.0
+TELEOP_TARGET_B_RESTITUTION = 0.18
+TELEOP_TARGET_B_COLOR = "firebrick"
+
+# ============================================================================
+# Haptic Collision Feedback Parameters
+# ============================================================================
+
+HAPTIC_MAX_FORCE_N = 3.0
+HAPTIC_STIFFNESS_N_PER_M = 180.0
+HAPTIC_DAMPING_N_S_PER_M = 12.0
+HAPTIC_CONTACT_DISTANCE_M = 0.12
+HAPTIC_MESH_CONTACT_MODE = 1
+HAPTIC_MESH_CONTACT_TOLERANCE_M = 0.001

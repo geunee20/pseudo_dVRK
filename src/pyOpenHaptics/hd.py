@@ -118,6 +118,7 @@ else:
 
 
 def _get_doublev(code: int, dtype):
+    """Query a double-typed parameter from the active haptic device."""
     data = dtype()
     _lib_hd.hdGetDoublev.argtypes = [HDenum, POINTER(dtype)]
     _lib_hd.hdGetDoublev.restype = None
@@ -126,6 +127,7 @@ def _get_doublev(code: int, dtype):
 
 
 def _get_integerv(code: int, dtype):
+    """Query an integer-typed parameter from the active haptic device."""
     data = dtype()
     _lib_hd.hdGetIntegerv.argtypes = [HDenum, POINTER(dtype)]
     _lib_hd.hdGetIntegerv.restype = None
@@ -134,6 +136,7 @@ def _get_integerv(code: int, dtype):
 
 
 def _set_doublev(code: int, value, dtype):
+    """Write a double-typed parameter to the active haptic device."""
     data = dtype(*value)
     _lib_hd.hdSetDoublev.argtypes = [HDenum, POINTER(dtype)]
     _lib_hd.hdSetDoublev.restype = None
@@ -141,11 +144,13 @@ def _set_doublev(code: int, value, dtype):
 
 
 def _get_error() -> HDErrorInfo:
+    """Retrieve the most recent OpenHaptics error info structure via ``hdGetError``."""
     _lib_hd.hdGetError.restype = HDErrorInfo
     return _lib_hd.hdGetError()
 
 
 def error_code_name(error_code: int) -> str:
+    """Return a human-readable name for an OpenHaptics error code."""
     return error_name_dict.get(error_code, f"UNKNOWN_HD_ERROR_0x{int(error_code):04X}")
 
 
@@ -398,21 +403,25 @@ def get_nominal_max_damping() -> float:
 
 
 def close_device(device_id: int) -> None:
+    """Disable and release the specified haptic device handle."""
     _lib_hd.hdDisableDevice.argtypes = [HHD]
     _lib_hd.hdDisableDevice(device_id)
 
 
 def get_current_device() -> HHD:
+    """Return the handle of the device currently active on this thread."""
     _lib_hd.hdGetCurrentDevice.restype = HHD
     return _lib_hd.hdGetCurrentDevice()
 
 
 def make_current_device(device_id: int) -> None:
+    """Set the specified device as the active (current) device on this thread."""
     _lib_hd.hdMakeCurrentDevice.argtypes = [HHD]
     _lib_hd.hdMakeCurrentDevice(device_id)
 
 
 def start_scheduler() -> None:
+    """Start the OpenHaptics scheduler; no-op if already running."""
     global _scheduler_started
     if _scheduler_started:
         return
@@ -421,6 +430,7 @@ def start_scheduler() -> None:
 
 
 def stop_scheduler() -> None:
+    """Stop the OpenHaptics scheduler; no-op if already stopped."""
     global _scheduler_started
     if not _scheduler_started:
         return
@@ -429,6 +439,7 @@ def stop_scheduler() -> None:
 
 
 def enable_force() -> None:
+    """Enable force-feedback output on the active haptic device (``HD_FORCE_OUTPUT``)."""
     _lib_hd.hdEnable.argtypes = [HDenum]
     _lib_hd.hdEnable.restype = None
     _lib_hd.hdEnable(HD_FORCE_OUTPUT)
@@ -436,18 +447,21 @@ def enable_force() -> None:
 
 
 def begin_frame(device_id: int) -> None:
+    """Open a haptic frame on the specified device (``hdBeginFrame``)."""
     _lib_hd.hdBeginFrame.argtypes = [HHD]
     _lib_hd.hdBeginFrame.restype = None
     _lib_hd.hdBeginFrame(device_id)
 
 
 def end_frame(device_id: int) -> None:
+    """Close a haptic frame on the specified device (``hdEndFrame``)."""
     _lib_hd.hdEndFrame.argtypes = [HHD]
     _lib_hd.hdEndFrame.restype = None
     _lib_hd.hdEndFrame(device_id)
 
 
 def _get_string(code: int) -> Optional[str]:
+    """Query a string parameter from the active haptic device via ``hdGetString``."""
     _lib_hd.hdGetString.argtypes = [HDenum]
     _lib_hd.hdGetString.restype = HDstring
     value = _lib_hd.hdGetString(code)
@@ -460,12 +474,15 @@ def _get_string(code: int) -> Optional[str]:
 
 
 def get_model() -> Optional[str]:
+    """Return the model type string of the active haptic device."""
     return _get_string(HD_DEVICE_MODEL_TYPE)
 
 
 def get_vendor() -> Optional[str]:
+    """Return the vendor string of the active haptic device."""
     return _get_string(HD_DEVICE_VENDOR)
 
 
 def get_serial_number() -> Optional[str]:
+    """Return the serial number string of the active haptic device."""
     return _get_string(HD_DEVICE_SERIAL_NUMBER)

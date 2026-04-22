@@ -3,17 +3,24 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
-from src.robots.protocols import RobotTreeLike, VisualRobotLike
+from src.robots.protocols import CollisionRobotLike, RobotTreeLike, VisualRobotLike
 from .se3 import exp_screw_axis, origin_transform
 
 if TYPE_CHECKING:
-    from src.robots.robot import LinkVisual, JointInfo
+    from src.robots.robot import JointInfo, LinkCollision, LinkVisual
 
 
 @dataclass
 class VisualPose:
     link_name: str
     visual: LinkVisual
+    T_world: np.ndarray
+
+
+@dataclass
+class CollisionPose:
+    link_name: str
+    collision: LinkCollision
     T_world: np.ndarray
 
 
@@ -216,6 +223,41 @@ def visual_transforms(
             T_world_visual = T_world_link @ T_link_visual
 
             out.append(VisualPose(link_name, visual, T_world_visual))
+
+    return out
+
+
+def collision_transforms(
+    robot: CollisionRobotLike,
+    theta: np.ndarray | None = None,
+    base_transform: np.ndarray | None = None,
+) -> list[CollisionPose]:
+    """Compute world-frame transforms of all collision geometries of a robot."""
+    if base_transform is None:
+        base_transform = np.eye(4)
+    else:
+        base_transform = np.asarray(base_transform, dtype=float).reshape(4, 4)
+
+    T_links = link_transforms(robot, theta)
+    out: list[CollisionPose] = []
+
+    for link_name in robot.link_names:
+        if link_name not in T_links:
+            continue
+
+        T_world_link = base_transform @ T_links[link_name]
+        for collision in robot.get_link_collisions(link_name):
+            T_link_collision = origin_transform(
+                collision.origin_xyz,
+                collision.origin_rpy,
+            )
+            out.append(
+                CollisionPose(
+                    link_name=link_name,
+                    collision=collision,
+                    T_world=T_world_link @ T_link_collision,
+                )
+            )
 
     return out
 

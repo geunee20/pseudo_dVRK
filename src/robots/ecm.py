@@ -147,7 +147,7 @@ class ECM(UrdfRobot):
             \\hat{z}' &= -s\\,\\hat{y} + c\\,\\hat{z}
 
         where :math:`c = \\cos(\\alpha)`, :math:`s = \\sin(\\alpha)`,
-        :math:`\\alpha = \\text{optical_tilt_deg}`.
+        :math:`\\alpha = \\text{optical\\_tilt\\_deg}`.
 
         Args:
             theta: (dof,) joint configuration.  Defaults to the stored state.

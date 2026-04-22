@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Mapping, Protocol, Sequence
 import numpy as np
 
 if TYPE_CHECKING:
-    from src.robots.robot import JointInfo, LinkVisual
+    from src.robots.robot import JointInfo, LinkCollision, LinkVisual
 
 
 class JointStateLike(Protocol):
@@ -58,6 +58,17 @@ class VisualRobotLike(RobotTreeLike, Protocol):
     def link_names(self) -> Sequence[str]: ...
 
     def get_link_visuals(self, link: str | None = None) -> Sequence[LinkVisual]: ...
+
+
+class CollisionRobotLike(RobotTreeLike, Protocol):
+    """Extended protocol for robots that also expose collision geometry."""
+
+    @property
+    def link_names(self) -> Sequence[str]: ...
+
+    def get_link_collisions(
+        self, link: str | None = None
+    ) -> Sequence[LinkCollision]: ...
 
 
 class ToolKinematicsRobotLike(RobotTreeLike, Protocol):

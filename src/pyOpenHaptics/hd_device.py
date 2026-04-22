@@ -37,6 +37,19 @@ class HapticDevice(object):
         scheduler_type: str = "async",
         bind_callback_to_device: bool = True,
     ):
+        """Initialise the haptic device, enable force output, and start the scheduler.
+
+        Args:
+            callback: Servo-loop function invoked each haptic tick.
+            device_name: OpenHaptics device name (default ``"Default Device"``).
+            scheduler_type: ``"async"`` (high-rate) or ``"sync"`` (application-rate) scheduler.
+            bind_callback_to_device: If ``True``, wrap *callback* with
+                :func:`~hd_callback.bind_device_callback` so the correct device
+                is made current before every tick.
+
+        Raises:
+            RuntimeError: If the device handle is invalid or vendor/model cannot be queried.
+        """
         print("Initializing haptic device with name {}".format(device_name))
         current_id = get_current_device()
 
@@ -92,14 +105,17 @@ class HapticDevice(object):
 
     @staticmethod
     def __vendor__() -> str | None:
+        """Return the vendor string of this device."""
         return get_vendor()
 
     @staticmethod
     def __model__() -> str | None:
+        """Return the model type string of this device."""
         return get_model()
 
     @staticmethod
     def __serial__() -> str | None:
+        """Return the serial number string of this device, or ``None`` if unavailable."""
         try:
             return get_serial_number()
         except Exception:

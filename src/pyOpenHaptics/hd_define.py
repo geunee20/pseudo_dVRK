@@ -28,6 +28,8 @@ HDCallbackCode = c_uint
 
 
 class HDErrorInfo(Structure):
+    """ctypes Structure holding an OpenHaptics error code, internal error code, and device handle."""
+
     _fields_ = [("errorCode", HDerror), ("internalErrorCode", c_int), ("hHD", HHD)]
 
 
