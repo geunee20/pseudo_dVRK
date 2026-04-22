@@ -138,13 +138,15 @@ class ECM(UrdfRobot):
     ) -> CameraPose:
         """Compute a monocular camera pose from the current ECM joint state.
 
-        The camera is placed at the scope tip.  A tilt about the local
-        :math:`+X` axis (the optical tilt) adjusts the viewing direction:
+        The camera is placed at the scope tip with camera-frame convention
+        tied to the scope frame: right :math:`+X`, up :math:`-Z`,
+        forward :math:`+Y`. A tilt about local :math:`+X` (optical tilt)
+        rotates forward/up:
 
         .. math::
 
-            \\hat{y}' &= c\\,\\hat{y} + s\\,\\hat{z} \\\\
-            \\hat{z}' &= -s\\,\\hat{y} + c\\,\\hat{z}
+            \\hat{f} &= c\\,\\hat{y} + s\\,\\hat{z} \\\\
+            \\hat{u} &= s\\,\\hat{y} - c\\,\\hat{z}
 
         where :math:`c = \\cos(\\alpha)`, :math:`s = \\sin(\\alpha)`,
         :math:`\\alpha = \\text{optical_tilt_deg}`.
@@ -166,6 +168,7 @@ class ECM(UrdfRobot):
         )
 
         p = T_world_tool[:3, 3]
+        x_axis = normalize_vector(T_world_tool[:3, 0])
         y_axis = normalize_vector(T_world_tool[:3, 1])
         z_axis = normalize_vector(T_world_tool[:3, 2])
 
@@ -173,14 +176,23 @@ class ECM(UrdfRobot):
         c = float(np.cos(tilt_rad))
         s = float(np.sin(tilt_rad))
 
-        # Rotate local basis around X axis: y' = c*y + s*z, z' = -s*y + c*z.
-        cam_up = normalize_vector(c * y_axis + s * z_axis)
-        cam_forward = normalize_vector(-s * y_axis + c * z_axis)
+        # Camera convention in tool frame: up=-x, right=-y.
+        cam_right = normalize_vector(-y_axis)
+        cam_up = normalize_vector(-x_axis)
+        cam_forward = normalize_vector(z_axis)
+
+        # Apply optical tilt around camera-right axis.
+        def _rotate_about_right(v: np.ndarray) -> np.ndarray:
+            axis = cam_right
+            return c * v + s * np.cross(axis, v) + (1.0 - c) * np.dot(axis, v) * axis
+
+        cam_forward = normalize_vector(_rotate_about_right(cam_forward))
+        cam_up = normalize_vector(_rotate_about_right(cam_up))
 
         if np.linalg.norm(cam_forward) < 1e-12:
-            cam_forward = z_axis
+            cam_forward = normalize_vector(z_axis)
         if np.linalg.norm(cam_up) < 1e-12:
-            cam_up = y_axis
+            cam_up = normalize_vector(-x_axis)
 
         focal = p + float(focus_distance) * cam_forward
         return CameraPose(position=p, focal_point=focal, viewup=cam_up)
@@ -228,11 +240,12 @@ class ECM(UrdfRobot):
         T_world_tool = self.tool_transform_world(
             theta=theta, base_transform=base_transform
         )
-        x_axis = normalize_vector(T_world_tool[:3, 0])
+        y_axis = normalize_vector(T_world_tool[:3, 1])
+        cam_right = normalize_vector(-y_axis)
 
         half = 0.5 * float(baseline)
-        left_pos = center.position - half * x_axis
-        right_pos = center.position + half * x_axis
+        left_pos = center.position - half * cam_right
+        right_pos = center.position + half * cam_right
 
         forward = normalize_vector(center.focal_point - center.position)
         left = CameraPose(
